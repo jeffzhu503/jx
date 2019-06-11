@@ -7,6 +7,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -75,7 +77,7 @@ func NewCmdScanCluster(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -246,7 +248,7 @@ func (o *ScanClusterOptions) printResult(result *scanResult) error {
 		if err != nil {
 			return errors.Wrap(err, "converting scan result to YAML")
 		}
-		log.Info(string(output))
+		log.Logger().Info(string(output))
 	} else {
 		nodeTable := o.CreateTable()
 		nodeTable.SetColumnAlign(1, util.ALIGN_LEFT)

@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"strings"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -48,7 +50,7 @@ func NewCmdDeleteTrackerToken(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.ServerFlags.AddGitServerFlags(cmd)
@@ -81,7 +83,7 @@ func (o *DeleteTrackerTokenOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Deleted API tokens for users: %s for issue tracker server %s at %s from local settings\n",
+	log.Logger().Infof("Deleted API tokens for users: %s for issue tracker server %s at %s from local settings",
 		util.ColorInfo(strings.Join(args, ", ")), util.ColorInfo(server.Name), util.ColorInfo(server.URL))
 	return nil
 }

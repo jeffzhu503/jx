@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/jenkins-x/jx/pkg/version"
@@ -58,7 +60,7 @@ func NewCmdGetStream(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Kind, "kind", "k", "docker", "The kind of version. Possible values: "+strings.Join(version.KindStrings, ", "))
@@ -85,7 +87,7 @@ func (o *GetStreamOptions) Run() error {
 		if err != nil {
 			return errors.Wrapf(err, "failed to resolve docker image %s", name)
 		}
-		log.Infof("resolved image %s to %s\n", util.ColorInfo(name), util.ColorInfo(result))
+		log.Logger().Infof("resolved image %s to %s", util.ColorInfo(name), util.ColorInfo(result))
 		return nil
 	}
 
@@ -94,6 +96,6 @@ func (o *GetStreamOptions) Run() error {
 		return errors.Wrapf(err, "failed to resolve %s version of %s", o.Kind, name)
 	}
 
-	log.Infof("resolved %s %s to version: %s\n", util.ColorInfo(name), util.ColorInfo(o.Kind), util.ColorInfo(n))
+	log.Logger().Infof("resolved %s %s to version: %s", util.ColorInfo(name), util.ColorInfo(o.Kind), util.ColorInfo(n))
 	return nil
 }

@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"time"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -53,7 +55,7 @@ func NewCmdCreateGitUser(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.ServerFlags.AddGitServerFlags(cmd)
@@ -99,7 +101,7 @@ func (o *CreateGitUserOptions) Run() error {
 	}
 
 	deploymentName := "gitea-gitea"
-	log.Infof("Waiting for pods to be ready for deployment %s\n", deploymentName)
+	log.Logger().Infof("Waiting for pods to be ready for deployment %s", deploymentName)
 
 	err = kube.WaitForDeploymentToBeReady(client, deploymentName, ns, 5*time.Minute)
 	if err != nil {
@@ -124,7 +126,7 @@ func (o *CreateGitUserOptions) Run() error {
 		return nil
 	}
 
-	log.Infof("Created user %s API Token for Git server %s at %s\n",
+	log.Logger().Infof("Created user %s API Token for Git server %s at %s",
 		util.ColorInfo(o.Username), util.ColorInfo(server.Name), util.ColorInfo(server.URL))
 	return nil
 }

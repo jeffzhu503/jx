@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/extensions"
 
 	"github.com/blang/semver"
@@ -21,7 +23,7 @@ import (
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
-	"github.com/stoewer/go-strcase"
+	strcase "github.com/stoewer/go-strcase"
 
 	"github.com/ghodss/yaml"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -87,7 +89,7 @@ func NewCmdUpgradeExtensionsRepository(commonOpts *opts.CommonOptions) *cobra.Co
 			options.Cmd = cmd2
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.InputFile, "input-file", "i", "jenkins-x-extensions-repository.yaml", "The input file to read to generate the .lock file")
@@ -130,12 +132,11 @@ func (o *UpgradeExtensionsRepositoryOptions) Run() error {
 			lookupByUUID[r.UUID] = r
 		}
 	}
-	if o.Verbose {
-		log.Infof("Extension to UUID mapping:\n")
-		for k, v := range lookupByName {
-			log.Infof("  %s: %s\n", util.ColorInfo(k), util.ColorInfo(v.UUID))
-		}
+	log.Logger().Debugf("Extension to UUID mapping:")
+	for k, v := range lookupByName {
+		log.Logger().Debugf("  %s: %s", util.ColorInfo(k), util.ColorInfo(v.UUID))
 	}
+
 	uuidResolveErrors := make([]string, 0)
 	seenExtensions := make(map[string]string, 0)
 	replacementLocks := newLock.Extensions[:0]
@@ -177,20 +178,18 @@ func (o *UpgradeExtensionsRepositoryOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Updating extensions repository from %s to %s. ", util.ColorInfo(oldLock.Version), util.ColorInfo(newLock.Version))
+	log.Logger().Infof("Updating extensions repository from %s to %s. ", util.ColorInfo(oldLock.Version), util.ColorInfo(newLock.Version))
 	err = ioutil.WriteFile(o.OutputFile, bytes, 0755)
 	if err != nil {
 		return err
 	}
 	diff, err := o.Git().Diff("")
 	if err != nil {
-		log.Warnf("Error finding diff %s", err.Error())
+		log.Logger().Warnf("Error finding diff %s", err.Error())
 	}
 
-	if o.Verbose && diff != "" {
-		log.Infof("Changes are \n\n%s\n\n", diff)
-	} else {
-		log.Infof("\n")
+	if diff != "" {
+		log.Logger().Debugf("Changes are \n\n%s\n", diff)
 	}
 	return nil
 }
@@ -242,13 +241,13 @@ func (o *UpgradeExtensionsRepositoryOptions) walkRemote(remote string, tag strin
 			// If the UUID is still empty, generate one
 			if UUID == "" {
 				UUID = uuid.New()
-				log.Infof("No UUID found for %s. Generated UUID %s, please update your extension definition "+
-					"accordingly.\n", ed.FullyQualifiedName(), UUID)
+				log.Logger().Infof("No UUID found for %s. Generated UUID %s, please update your extension definition "+
+					"accordingly.", ed.FullyQualifiedName(), UUID)
 			}
 			newVersion := strings.TrimPrefix(resolvedTag, "v")
 			oldSemanticVersion, err := semver.Parse(oldLookupByUUID[UUID].Version)
 			if err != nil {
-				log.Infof("Cannot determine existing version for %s. Upgrading to %s anyway.\n", ed.FullyQualifiedName(), newVersion)
+				log.Logger().Infof("Cannot determine existing version for %s. Upgrading to %s anyway.", ed.FullyQualifiedName(), newVersion)
 				oldSemanticVersion = semver.Version{}
 			}
 			newSemanticVersion, err := semver.Parse(newVersion)
@@ -308,9 +307,7 @@ func (o *UpgradeExtensionsRepositoryOptions) walkRemote(remote string, tag strin
 					Script:      strings.TrimSuffix(script, "\n"),
 					Children:    children,
 				}
-				if o.Verbose {
-					log.Infof("Found extension %s version %s\n", util.ColorInfo(extension.FullyQualifiedName()), util.ColorInfo(extension.Version))
-				}
+				log.Logger().Debugf("Found extension %s version %s", util.ColorInfo(extension.FullyQualifiedName()), util.ColorInfo(extension.Version))
 				result = append(result, extension)
 			} else {
 				children, err := o.walkLock(oldLookupByUUID[UUID], oldLookupByUUID)
@@ -348,7 +345,7 @@ func (o *UpgradeExtensionsRepositoryOptions) FixChildren(extension jenkinsv1.Ext
 	for _, childUUID := range extension.Children {
 		if uuid.Parse(childUUID) == nil {
 			if c, ok := lookupByName[childUUID]; ok {
-				log.Infof("We recommend you explicitly specify the UUID for childUUID %s on extension %s as this will stop the "+
+				log.Logger().Infof("We recommend you explicitly specify the UUID for childUUID %s on extension %s as this will stop the "+
 					"extension breaking if names are changed.\n"+
 					"If you are the maintainer of the extension definition add \n"+
 					"\n"+

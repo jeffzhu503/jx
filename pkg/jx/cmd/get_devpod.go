@@ -3,6 +3,8 @@ package cmd
 import (
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/log"
 
 	"github.com/spf13/cobra"
@@ -52,7 +54,7 @@ func NewCmdGetDevPod(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -78,7 +80,7 @@ func (o *GetDevPodOptions) Run() error {
 	var userName string
 	if o.AllUsernames {
 		if o.Username != "" {
-			log.Warn("getting devpods for all usernames. Explicit username will be ignored")
+			log.Logger().Warn("getting devpods for all usernames. Explicit username will be ignored")
 		}
 		// Leave userName blank
 	} else {

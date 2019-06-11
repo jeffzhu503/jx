@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -50,7 +52,7 @@ func NewCmdCreateTrackerServer(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -98,7 +100,7 @@ func (o *CreateTrackerServerOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Added issue tracker server %s for URL %s\n", util.ColorInfo(name), util.ColorInfo(gitUrl))
+	log.Logger().Infof("Added issue tracker server %s for URL %s", util.ColorInfo(name), util.ColorInfo(gitUrl))
 	return nil
 }
 

@@ -3,12 +3,13 @@ package gits
 import (
 	"context"
 	"fmt"
-	"github.com/pkg/errors"
 	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/google/go-github/github"
 	"github.com/jenkins-x/jx/pkg/auth"
@@ -124,6 +125,47 @@ func (p *GitHubProvider) IsUserInOrganisation(user string, org string) (bool, er
 	return false, nil
 }
 
+func (p *GitHubProvider) ListRepositoriesForUser(user string) ([]*GitRepository, error) {
+	owner := user
+	answer := []*GitRepository{}
+	options := &github.RepositoryListOptions{
+		ListOptions: github.ListOptions{
+			Page:    0,
+			PerPage: pageSize,
+		},
+	}
+
+	for {
+		repos, _, err := p.Client.Repositories.List(p.Context, owner, options)
+		if err != nil {
+			options := &github.RepositoryListOptions{
+				ListOptions: github.ListOptions{
+					Page:    0,
+					PerPage: pageSize,
+				},
+			}
+			repos, _, err = p.Client.Repositories.List(p.Context, owner, options)
+			if err != nil {
+				return answer, err
+			}
+
+		}
+		for _, repo := range repos {
+			answer = append(answer, toGitHubRepo(asText(repo.Name), repo))
+		}
+		if len(repos) < pageSize || len(repos) == 0 {
+			break
+		}
+		options.ListOptions.Page += 1
+	}
+	return answer, nil
+}
+
+// IsOwnerGitHubUser checks to see if the owner is the GitHub User
+func IsOwnerGitHubUser(owner string, gitHubUser string) bool {
+	return owner == gitHubUser && gitHubUser != ""
+}
+
 func (p *GitHubProvider) ListRepositories(org string) ([]*GitRepository, error) {
 	owner := org
 	answer := []*GitRepository{}
@@ -133,6 +175,12 @@ func (p *GitHubProvider) ListRepositories(org string) ([]*GitRepository, error) 
 			PerPage: pageSize,
 		},
 	}
+
+	if IsOwnerGitHubUser(owner, p.Username) {
+		log.Logger().Infof("Owner of repo is same as username, using GitHub API for Users")
+		return p.ListRepositoriesForUser(p.Username)
+	}
+
 	for {
 		repos, _, err := p.Client.Repositories.ListByOrg(p.Context, owner, options)
 		if err != nil {
@@ -275,7 +323,7 @@ func (p *GitHubProvider) ForkRepository(originalOrg string, name string, destina
 			owner = p.Username
 		}
 		if strings.Contains(err.Error(), "try again later") {
-			log.Warnf("Waiting for the fork of %s/%s to appear...\n", owner, name)
+			log.Logger().Warnf("Waiting for the fork of %s/%s to appear...", owner, name)
 			// lets wait for the fork to occur...
 			start := time.Now()
 			deadline := start.Add(time.Minute)
@@ -319,7 +367,7 @@ func (p *GitHubProvider) CreateWebHook(data *GitWebHookArguments) error {
 	}
 	hooks, _, err := p.Client.Repositories.ListHooks(p.Context, owner, repo, nil)
 	if err != nil {
-		log.Errorf("Error querying webhooks on %s/%s: %s\n", owner, repo, err)
+		log.Logger().Warnf("Querying webhooks on %s/%s: %s", owner, repo, err)
 	}
 	for _, hook := range hooks {
 		c := hook.Config["url"]
@@ -337,7 +385,7 @@ func (p *GitHubProvider) CreateWebHook(data *GitWebHookArguments) error {
 					return errors.Wrapf(err, "failed to remove old webhook on %s/%s with ID %v with old secret", owner, repo, id)
 				}
 			} else {
-				log.Warnf("Already has a webhook registered for %s\n", webhookUrl)
+				log.Logger().Warnf("Already has a webhook registered for %s", webhookUrl)
 				return nil
 			}
 		}
@@ -354,7 +402,8 @@ func (p *GitHubProvider) CreateWebHook(data *GitWebHookArguments) error {
 		Config: config,
 		Events: []string{"*"},
 	}
-	log.Infof("Creating GitHub webhook for %s/%s for url %s\n", util.ColorInfo(owner), util.ColorInfo(repo), util.ColorInfo(webhookUrl))
+
+	log.Logger().Infof("Creating GitHub webhook for %s/%s for url %s", util.ColorInfo(owner), util.ColorInfo(repo), util.ColorInfo(webhookUrl))
 	_, _, err = p.Client.Repositories.CreateHook(p.Context, owner, repo, hook)
 	return err
 }
@@ -371,7 +420,7 @@ func (p *GitHubProvider) ListWebHooks(owner string, repo string) ([]*GitWebHookA
 
 	hooks, _, err := p.Client.Repositories.ListHooks(p.Context, owner, repo, nil)
 	if err != nil {
-		log.Errorf("Error querying webhooks on %s/%s: %s\n", owner, repo, err)
+		return webHooks, nil
 	}
 
 	for _, hook := range hooks {
@@ -406,7 +455,7 @@ func (p *GitHubProvider) UpdateWebHook(data *GitWebHookArguments) error {
 	}
 	hooks, _, err := p.Client.Repositories.ListHooks(p.Context, owner, repo, nil)
 	if err != nil {
-		log.Errorf("Error querying webhooks on %s/%s: %s\n", owner, repo, err)
+		log.Logger().Warnf("Querying webhooks on %s/%s: %s", owner, repo, err)
 	}
 
 	dataId := data.ID
@@ -415,7 +464,7 @@ func (p *GitHubProvider) UpdateWebHook(data *GitWebHookArguments) error {
 			c := hook.Config["url"]
 			s, ok := c.(string)
 			if ok && s == data.ExistingURL {
-				log.Warnf("Found existing webhook for url %s\n", data.ExistingURL)
+				log.Logger().Warnf("Found existing webhook for url %s", data.ExistingURL)
 				dataId = hook.GetID()
 			}
 		}
@@ -437,10 +486,10 @@ func (p *GitHubProvider) UpdateWebHook(data *GitWebHookArguments) error {
 			Events: []string{"*"},
 		}
 
-		log.Infof("Updating GitHub webhook for %s/%s for url %s\n", util.ColorInfo(owner), util.ColorInfo(repo), util.ColorInfo(webhookUrl))
+		log.Logger().Infof("Updating GitHub webhook for %s/%s for url %s", util.ColorInfo(owner), util.ColorInfo(repo), util.ColorInfo(webhookUrl))
 		_, _, err = p.Client.Repositories.EditHook(p.Context, owner, repo, dataId, hook)
 	} else {
-		log.Warn("No webhooks found to update")
+		log.Logger().Warn("No webhooks found to update")
 	}
 	return err
 }
@@ -493,6 +542,18 @@ func (p *GitHubProvider) UpdatePullRequestStatus(pr *GitPullRequest) error {
 		return err
 	}
 	p.updatePullRequest(pr, result)
+	return nil
+}
+
+// AddLabelsToIssue adds labels to an issue
+func (p *GitHubProvider) AddLabelsToIssue(owner string, repo string, number int, labels []string) error {
+	_, result, err := p.Client.Issues.AddLabelsToIssue(p.Context, owner, repo, number, labels)
+	if err != nil {
+		return err
+	}
+	if result.StatusCode > 201 {
+		return errors.Wrapf(err, "failed to add labels to issue on %s/%s with ID %v", owner, repo, number)
+	}
 	return nil
 }
 
@@ -658,7 +719,7 @@ func (p *GitHubProvider) GetPullRequestCommits(owner string, repository *GitRepo
 				}
 
 				if summary.Author.Email == "" {
-					log.Info("Commit author email is empty for: " + commit.GetSHA() + "\n")
+					log.Logger().Info("Commit author email is empty for: " + commit.GetSHA() + "")
 					dir, err := os.Getwd()
 					if err != nil {
 						return answer, err
@@ -667,10 +728,10 @@ func (p *GitHubProvider) GetPullRequestCommits(owner string, repository *GitRepo
 					if err != nil {
 						return answer, err
 					}
-					log.Info("Looking for commits in: " + gitDir + "\n")
+					log.Logger().Info("Looking for commits in: " + gitDir + "")
 					email, err := p.Git.GetAuthorEmailForCommit(gitDir, commit.GetSHA())
 					if err != nil {
-						log.Warn("Commit not found: " + commit.GetSHA() + "\n")
+						log.Logger().Warn("Commit not found: " + commit.GetSHA() + "")
 						continue
 					}
 					summary.Author.Email = email
@@ -678,10 +739,10 @@ func (p *GitHubProvider) GetPullRequestCommits(owner string, repository *GitRepo
 
 				answer = append(answer, summary)
 			} else {
-				log.Warn("No author for commit: " + commit.GetSHA() + "\n")
+				log.Logger().Warn("No author for commit: " + commit.GetSHA() + "")
 			}
 		} else {
-			log.Warn("No Commit object for for commit: " + commit.GetSHA() + "\n")
+			log.Logger().Warn("No Commit object for for commit: " + commit.GetSHA() + "")
 		}
 	}
 	return answer, nil
@@ -909,11 +970,12 @@ func (p *GitHubProvider) UpdateRelease(owner string, repo string, tag string, re
 	if release.TagName == nil && releaseInfo.TagName != "" {
 		release.TagName = &releaseInfo.TagName
 	}
-	if release.Body == nil && releaseInfo.Body != "" {
+	if (release.Body == nil || *release.Body == "") && releaseInfo.Body != "" {
 		release.Body = &releaseInfo.Body
 	}
+
 	if r != nil && r.StatusCode == 404 {
-		log.Warnf("No release found for %s/%s and tag %s so creating a new release\n", owner, repo, tag)
+		log.Logger().Warnf("No release found for %s/%s and tag %s so creating a new release", owner, repo, tag)
 		_, _, err = p.Client.Repositories.CreateRelease(p.Context, owner, repo, release)
 		return err
 	}
@@ -1137,7 +1199,7 @@ func (p *GitHubProvider) UserAuth() auth.UserAuth {
 func (p *GitHubProvider) UserInfo(username string) *GitUser {
 	user, _, err := p.Client.Users.Get(p.Context, username)
 	if user == nil || err != nil {
-		log.Error("Unable to fetch user info for " + username + "\n")
+		log.Logger().Error("Unable to fetch user info for " + username + "")
 		return nil
 	}
 
@@ -1151,7 +1213,7 @@ func (p *GitHubProvider) UserInfo(username string) *GitUser {
 }
 
 func (p *GitHubProvider) AddCollaborator(user string, organisation string, repo string) error {
-	log.Infof("Automatically adding the pipeline user: %v as a collaborator.\n", user)
+	log.Logger().Infof("Automatically adding the pipeline user: %v as a collaborator.", user)
 	_, err := p.Client.Repositories.AddCollaborator(p.Context, organisation, repo, user, &github.RepositoryAddCollaboratorOptions{})
 	if err != nil {
 		return err
@@ -1164,7 +1226,7 @@ func (p *GitHubProvider) ListInvitations() ([]*github.RepositoryInvitation, *git
 }
 
 func (p *GitHubProvider) AcceptInvitation(ID int64) (*github.Response, error) {
-	log.Infof("Automatically accepted invitation: %v for the pipeline user.\n", ID)
+	log.Logger().Infof("Automatically accepted invitation: %v for the pipeline user.", ID)
 	return p.Client.Users.AcceptInvitation(p.Context, ID)
 }
 
@@ -1221,18 +1283,22 @@ func (p *GitHubProvider) ListCommits(owner, repo string, opt *ListCommitsArgumen
 		return nil, fmt.Errorf("Could not find commits for repository %s/%s", owner, repo)
 	}
 	var commits []*GitCommit
-	if len(githubCommits) > 0 {
-		for i := 0; i < len(githubCommits); i++ {
+
+	for _, commit := range githubCommits {
+		if commit.Commit != nil {
+			var author *GitUser
+			if commit.Author != nil && commit.Author.Login != nil {
+				author = &GitUser{
+					Login: *commit.Author.Login,
+				}
+			}
 			commits = append(commits, &GitCommit{
-				SHA:     *githubCommits[i].SHA,
-				Message: *githubCommits[i].Commit.Message,
-				URL:     *githubCommits[i].Commit.URL,
-				Author: &GitUser{
-					Login: *githubCommits[i].Author.Login,
-				},
+				SHA:     asText(commit.SHA),
+				Message: asText(commit.Commit.Message),
+				URL:     asText(commit.Commit.URL),
+				Author:  author,
 			})
 		}
 	}
-
 	return commits, nil
 }

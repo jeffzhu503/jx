@@ -11,7 +11,9 @@ echo "Running validation scripts..."
 scripts=(
     "./hack/gofmt.sh"
     "./hack/linter.sh"
+    "./hack/codecov-validate.sh"
     "make verify-generation-complete"
+    "make generate-docs"
 )
 fail=0
 for s in "${scripts[@]}"; do
@@ -20,11 +22,11 @@ for s in "${scripts[@]}"; do
     $s
     result=$?
     set -e
-    if [[ $result  -eq 1 ]]; then
+    if [[ $result  -eq 0 ]]; then
+        echo -e "${GREEN}PASSED${RESET} ${s}"
+    else
         echo -e "${RED}FAILED${RESET} ${s}"
         fail=1
-    else
-        echo -e "${GREEN}PASSED${RESET} ${s}"
     fi
 done
 exit $fail

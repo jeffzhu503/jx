@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -54,7 +56,7 @@ func NewCmdDeleteDevPod(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -110,6 +112,6 @@ func (o *DeleteDevPodOptions) Run() error {
 			return err
 		}
 	}
-	log.Infof("Deleted DevPods %s\n", util.ColorInfo(deletePods))
+	log.Logger().Infof("Deleted DevPods %s", util.ColorInfo(deletePods))
 	return nil
 }

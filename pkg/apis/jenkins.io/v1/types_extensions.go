@@ -200,7 +200,7 @@ const (
 	OwnerReferenceGlobalParameterName string = "extOwnerReference"
 )
 
-func (e *ExtensionExecution) Execute(verbose bool) (err error) {
+func (e *ExtensionExecution) Execute() (err error) {
 	scriptFile, err := ioutil.TempFile("", fmt.Sprintf("%s-*", e.Name))
 	if err != nil {
 		return err
@@ -217,10 +217,8 @@ func (e *ExtensionExecution) Execute(verbose bool) (err error) {
 	if err != nil {
 		return err
 	}
-	if verbose {
-		log.Infof("Environment Variables:\n %s\n", e.EnvironmentVariables)
-		log.Infof("Script:\n %s\n", e.Script)
-	}
+	log.Logger().Debugf("Environment Variables:\n %s", e.EnvironmentVariables)
+	log.Logger().Debugf("Script:\n %s", e.Script)
 	envVars := make(map[string]string, 0)
 	for _, v := range e.EnvironmentVariables {
 		envVars[v.Name] = v.Value
@@ -230,7 +228,7 @@ func (e *ExtensionExecution) Execute(verbose bool) (err error) {
 		Env:  envVars,
 	}
 	out, err := cmd.RunWithoutRetry()
-	log.Info(out)
+	log.Logger().Info(out)
 	if err != nil {
 		return errors.Wrap(err, fmt.Sprintf("Error executing script %s", e.Name))
 	}
@@ -368,7 +366,7 @@ func (e *ExtensionSpec) Contains(when ExtensionWhen) bool {
 // +genclient
 // +genclient:noStatus
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +k8s:openapi-gen=true
+// +k8s:openapi-gen=false
 
 // CommitStatus represents the commit statuses for a particular pull request
 type CommitStatus struct {
@@ -447,6 +445,36 @@ type AppList struct {
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +k8s:openapi-gen=true
 
+// SourceRepositoryGroup is the metadata for an Application/Project/SourceRepository
+type SourceRepositoryGroup struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
+	Spec              SourceRepositoryGroupSpec `json:"spec,omitempty" protobuf:"bytes,2,opt,name=spec"`
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// SourceRepositoryGroupList is a structure used by k8s to store lists of apps
+type SourceRepositoryGroupList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata"`
+
+	Items []SourceRepositoryGroup `json:"items"`
+}
+
+// SourceRepositoryGroupSpec is the metadata for an Application/Project/SourceRepository
+type SourceRepositoryGroupSpec struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
+
+	SourceRepositorySpec []ResourceReference `json:"repositories" protobuf:"bytes,2,opt,name=repositories`
+	Scheduler            ResourceReference   `json:"scheduler" protobuf:"bytes,3,opt,name=scheduler`
+}
+
+// +genclient
+// +genclient:noStatus
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
 // SourceRepository is the metadata for an Application/Project/SourceRepository
 type SourceRepository struct {
 	metav1.TypeMeta `json:",inline"`
@@ -475,6 +503,9 @@ type SourceRepositorySpec struct {
 	Provider string `json:"provider,omitempty" protobuf:"bytes,2,opt,name=provider"`
 	Org      string `json:"org,omitempty" protobuf:"bytes,3,opt,name=org"`
 	Repo     string `json:"repo,omitempty" protobuf:"bytes,4,opt,name=repo"`
+	// ProviderName is a logical name for the provider without any URL scheme which can be used in a label selector
+	ProviderName string            `json:"providerName,omitempty" protobuf:"bytes,5,opt,name=providerName"`
+	Scheduler    ResourceReference `json:"scheduler,omitempty" protobuf:"bytes,5,opt,name=scheduler"`
 }
 
 // AppSpec provides details of the metadata for an App

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/jenkins-x/jx/pkg/cloud/amazon"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -42,7 +43,7 @@ func NewCmdGetAWSInfo(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -56,7 +57,7 @@ func (o *GetAWSInfoOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("AWS Account ID: %s\n", util.ColorInfo(id))
-	log.Infof("AWS Region:     %s\n", util.ColorInfo(region))
+	log.Logger().Infof("AWS Account ID: %s", util.ColorInfo(id))
+	log.Logger().Infof("AWS Region:     %s", util.ColorInfo(region))
 	return nil
 }

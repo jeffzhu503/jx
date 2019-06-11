@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,8 +60,6 @@ const (
 	//RepoVaultPath is the path to the repo credentials in Vault
 	RepoVaultPath = "helm/repos"
 )
-
-var isNotFoundRegex = regexp.MustCompile(`^Error: chart "\S*" matching \S* not found in \S* index. \(try 'helm repo update'\). no chart name found$`)
 
 // copied from helm to minimise dependencies...
 
@@ -385,7 +382,7 @@ func AppendMyValues(valueFiles []string) ([]string, error) {
 	}
 	if exists {
 		valueFiles = append(valueFiles, myValuesFile)
-		log.Infof("Using local value overrides file %s\n", util.ColorInfo(myValuesFile))
+		log.Logger().Infof("Using local value overrides file %s", util.ColorInfo(myValuesFile))
 	} else {
 		configDir, err := util.ConfigDir()
 		if err != nil {
@@ -398,7 +395,7 @@ func AppendMyValues(valueFiles []string) ([]string, error) {
 		}
 		if exists {
 			valueFiles = append(valueFiles, myValuesFile)
-			log.Infof("Using local value overrides file %s\n", util.ColorInfo(myValuesFile))
+			log.Logger().Infof("Using local value overrides file %s", util.ColorInfo(myValuesFile))
 		}
 	}
 	return valueFiles, nil
@@ -463,7 +460,7 @@ func InspectChart(chart string, version string, repo string, username string, pa
 	defer func() {
 		err1 := os.RemoveAll(dir)
 		if err1 != nil {
-			log.Warnf("Error removing %s %v\n", dir, err1)
+			log.Logger().Warnf("Error removing %s %v", dir, err1)
 		}
 	}()
 	inspectPath := filepath.Join(dir, chart)
@@ -527,12 +524,12 @@ func InstallFromChartOptions(options InstallChartOptions, helmer Helmer, kubeCli
 		}
 	}
 	if options.HelmUpdate {
-		log.Info("Updating Helm repository...")
+		log.Logger().Info("Updating Helm repository...")
 		err := helmer.UpdateRepo()
 		if err != nil {
 			return errors.Wrap(err, "failed to update repository")
 		}
-		log.Info("Helm repository update done.")
+		log.Logger().Info("Helm repository update done.")
 	}
 	cleanup, err := DecorateWithSecrets(&options, vaultClient)
 	defer cleanup()
@@ -578,7 +575,7 @@ func DecorateWithSecrets(options *InstallChartOptions, vaultClient vault.Client)
 			for _, f := range newValuesFiles {
 				err := util.DeleteFile(f)
 				if err != nil {
-					log.Errorf("Deleting temp file %s\n", f)
+					log.Logger().Errorf("Deleting temp file %s", f)
 				}
 			}
 		}
@@ -613,7 +610,7 @@ func DecorateWithSecrets(options *InstallChartOptions, vaultClient vault.Client)
 func AddHelmRepoIfMissing(helmURL, repoName, username, password string, helmer Helmer,
 	vaultClient vault.Client, in terminal.FileReader,
 	out terminal.FileWriter, outErr io.Writer) (string, error) {
-	missing, err := helmer.IsRepoMissing(helmURL)
+	missing, existingName, err := helmer.IsRepoMissing(helmURL)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to check if the repository with URL '%s' is missing", helmURL)
 	}
@@ -623,7 +620,7 @@ func AddHelmRepoIfMissing(helmURL, repoName, username, password string, helmer H
 			uri, err := url.Parse(helmURL)
 			if err != nil {
 				repoName = uuid.New()
-				log.Warnf("Unable to parse %s as URL so assigning random name %s\n", helmURL, repoName)
+				log.Logger().Warnf("Unable to parse %s as URL so assigning random name %s", helmURL, repoName)
 			} else {
 				repoName = uri.Hostname()
 			}
@@ -641,16 +638,18 @@ func AddHelmRepoIfMissing(helmURL, repoName, username, password string, helmer H
 				break
 			}
 		}
-		log.Infof("Adding missing Helm repo: %s %s\n", util.ColorInfo(repoName), util.ColorInfo(helmURL))
+		log.Logger().Infof("Adding missing Helm repo: %s %s", util.ColorInfo(repoName), util.ColorInfo(helmURL))
 		username, password, err = DecorateWithCredentials(helmURL, username, password, vaultClient, in, out, outErr)
 		if err != nil {
 			return "", errors.WithStack(err)
 		}
 		err = helmer.AddRepo(repoName, helmURL, username, password)
-		if err == nil {
-			log.Infof("Successfully added Helm repository %s.\n", repoName)
+		if err != nil {
+			return "", errors.Wrapf(err, "failed to add the repository '%s' with URL '%s'", repoName, helmURL)
 		}
-		return "", errors.Wrapf(err, "failed to add the repository '%s' with URL '%s'", repoName, helmURL)
+		log.Logger().Infof("Successfully added Helm repository %s.", repoName)
+	} else {
+		repoName = existingName
 	}
 	return repoName, nil
 }
@@ -683,14 +682,14 @@ func DecorateWithCredentials(repo string, username string, password string, vaul
 		}
 
 		if cred.Password != existingCred.Password || cred.Username != existingCred.Username {
-			log.Infof("Storing credentials for %s in vault %s\n", repo, RepoVaultPath)
+			log.Logger().Infof("Storing credentials for %s in vault %s", repo, RepoVaultPath)
 			creds[repo] = cred
 			_, err := vaultClient.WriteObject(RepoVaultPath, creds)
 			if err != nil {
 				return "", "", errors.Wrapf(err, "updating repo credentials in vault %s", RepoVaultPath)
 			}
 		} else {
-			log.Infof("Read credentials for %s from vault %s\n", repo, RepoVaultPath)
+			log.Logger().Infof("Read credentials for %s from vault %s", repo, RepoVaultPath)
 		}
 		return cred.Username, cred.Password, nil
 	}
@@ -804,7 +803,7 @@ func PromptForRepoCredsIfNeeded(repo string, cred *HelmRepoCredential, in termin
 			return errors.Errorf("username and password for %s not valid", repo)
 		} else if resp.StatusCode == 401 {
 			if cred.Username != "" || cred.Password != "" {
-				log.Errorf("Authentication for %s failed (%s/%s)", repo, cred.Username, strings.Repeat("*",
+				log.Logger().Errorf("Authentication for %s failed (%s/%s)", repo, cred.Username, strings.Repeat("*",
 					len(cred.Password)))
 			}
 			usernamePrompt := survey.Input{

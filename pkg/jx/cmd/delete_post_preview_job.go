@@ -2,6 +2,7 @@ package cmd
 
 import (
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/spf13/cobra"
 
@@ -47,7 +48,7 @@ func NewCmdDeletePostPreviewJob(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -74,9 +75,9 @@ func (o *DeletePostPreviewJobOptions) Run() error {
 		}
 		if idx >= 0 {
 			settings.PostPreviewJobs = append(settings.PostPreviewJobs[0:idx], settings.PostPreviewJobs[idx+1:]...)
-			log.Infof("Deleting the post Preview Job: %s\n", util.ColorInfo(name))
+			log.Logger().Infof("Deleting the post Preview Job: %s", util.ColorInfo(name))
 		} else {
-			log.Warnf("post Preview Job: %s does not exist in this team\n", name)
+			log.Logger().Warnf("post Preview Job: %s does not exist in this team", name)
 		}
 		return nil
 	}

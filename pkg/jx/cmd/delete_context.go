@@ -5,12 +5,14 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	survey "gopkg.in/AlecAivazis/survey.v1"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
-	"gopkg.in/AlecAivazis/survey.v1"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -57,7 +59,7 @@ func NewCmdDeleteContext(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	//addDeleteFlags(cmd, &options.CreateOptions)
@@ -125,16 +127,16 @@ func (o *DeleteContextOptions) Run() error {
 	for _, name := range selected {
 		a := newConfig.Contexts[name].AuthInfo
 		if o.DeleteAuthInfo && a != "" {
-			o.Debugf("Deleting user %s for context %s\n", util.ColorInfo(a), util.ColorInfo(name))
+			log.Logger().Debugf("Deleting user %s for context %s", util.ColorInfo(a), util.ColorInfo(name))
 			delete(newConfig.AuthInfos, a)
 		}
 		c := newConfig.Contexts[name].Cluster
 		if o.DeleteCluster && c != "" {
-			o.Debugf("Deleting cluster %s for context %s\n", util.ColorInfo(c), util.ColorInfo(name))
+			log.Logger().Debugf("Deleting cluster %s for context %s", util.ColorInfo(c), util.ColorInfo(name))
 			delete(newConfig.Clusters, c)
 		}
 
-		o.Debugf("Deleting context %s\n", util.ColorInfo(name))
+		log.Logger().Debugf("Deleting context %s", util.ColorInfo(name))
 		delete(newConfig.Contexts, name)
 	}
 	err = clientcmd.ModifyConfig(po, newConfig, false)
@@ -142,7 +144,7 @@ func (o *DeleteContextOptions) Run() error {
 		return fmt.Errorf("Failed to update the kube config %s", err)
 	}
 
-	log.Infof("Deleted Kubernetes contexts: %s\n", util.ColorInfo(strings.Join(selected, ", ")))
+	log.Logger().Infof("Deleted Kubernetes contexts: %s", util.ColorInfo(strings.Join(selected, ", ")))
 	return nil
 }
 

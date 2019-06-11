@@ -1,16 +1,17 @@
 package builds
 
 import (
-	"github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
-	"github.com/jenkins-x/jx/pkg/gits"
-	"github.com/jenkins-x/jx/pkg/kube"
-	"github.com/jenkins-x/jx/pkg/log"
-	corev1 "k8s.io/api/core/v1"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
+	"github.com/jenkins-x/jx/pkg/gits"
+	"github.com/jenkins-x/jx/pkg/kube"
+	"github.com/jenkins-x/jx/pkg/log"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // BaseBuildInfo is an interface that is implemented by both BuildPodInfo here and tekton.PipelineRunInfo
@@ -51,6 +52,7 @@ type BuildPodInfoFilter struct {
 	Filter     string
 	Pod        string
 	Pending    bool
+	Context    string
 }
 
 // CreateBuildPodInfo creates a BuildPodInfo from a Pod
@@ -64,7 +66,7 @@ func CreateBuildPodInfo(pod *corev1.Pod) *BuildPodInfo {
 	build := ""
 	shaRegexp, err := regexp.Compile("\b[a-z0-9]{40}\b")
 	if err != nil {
-		log.Warnf("Failed to compile regexp because %s", err)
+		log.Logger().Warnf("Failed to compile regexp because %s", err)
 	}
 	gitURL := ""
 
@@ -174,7 +176,7 @@ func CreateBuildPodInfo(pod *corev1.Pod) *BuildPodInfo {
 	if gitURL != "" {
 		gitInfo, err := gits.ParseGitURL(gitURL)
 		if err != nil {
-			log.Warnf("Failed to parse Git URL %s: %s", gitURL, err)
+			log.Logger().Warnf("Failed to parse Git URL %s: %s", gitURL, err)
 			return nil
 		}
 		if owner == "" {
@@ -192,6 +194,24 @@ func CreateBuildPodInfo(pod *corev1.Pod) *BuildPodInfo {
 	return answer
 }
 
+// LabelSelectorsForBuild returns a slice of label selectors corresponding to the filter
+func (o *BuildPodInfoFilter) LabelSelectorsForBuild() []string {
+	var labelSelectors []string
+	if o.Context != "" {
+		labelSelectors = append(labelSelectors, "context="+o.Context)
+	}
+	if o.Owner != "" {
+		labelSelectors = append(labelSelectors, "owner="+o.Owner)
+	}
+	if o.Repository != "" {
+		labelSelectors = append(labelSelectors, "repo="+o.Repository)
+	}
+	if o.Branch != "" {
+		labelSelectors = append(labelSelectors, "branch="+o.Branch)
+	}
+	return labelSelectors
+}
+
 // BuildMatches returns true if the build info matches the filter
 func (o *BuildPodInfoFilter) BuildMatches(info *BuildPodInfo) bool {
 	if o.Owner != "" && o.Owner != info.Organisation {
@@ -207,6 +227,9 @@ func (o *BuildPodInfoFilter) BuildMatches(info *BuildPodInfo) bool {
 		return false
 	}
 	if o.Pod != "" && o.Pod != info.PodName {
+		return false
+	}
+	if o.Context != "" && o.Context != info.Context {
 		return false
 	}
 	if o.Filter != "" && !strings.Contains(info.Name, o.Filter) {

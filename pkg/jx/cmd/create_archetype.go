@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/spf13/cobra"
 
 	"os"
@@ -65,7 +67,7 @@ func NewCmdCreateArchetype(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.addCreateAppFlags(cmd)
@@ -106,7 +108,7 @@ func (o *CreateArchetypeOptions) Run() error {
 		return err
 	}
 
-	log.Infof("Invoking: jx create archetype -g %s -a %s -v %s\n\n", form.ArchetypeGroupId, form.ArchetypeArtifactId, form.ArchetypeVersion)
+	log.Logger().Infof("Invoking: jx create archetype -g %s -a %s -v %s\n", form.ArchetypeGroupId, form.ArchetypeArtifactId, form.ArchetypeVersion)
 
 	return o.CreateArchetype()
 }
@@ -121,7 +123,7 @@ func (o *CreateArchetypeOptions) CreateArchetype() error {
 			return err
 		}
 	}
-	o.Debugf("basedir is: %s\n", dir)
+	log.Logger().Debugf("basedir is: %s", dir)
 
 	args := []string{}
 	if !o.Interactive {
@@ -177,7 +179,7 @@ func (o *CreateArchetypeOptions) CreateArchetype() error {
 	}
 	outDir := filepath.Join(dir, form.ArtifactId)
 	o.Dir = outDir
-	log.Infof("Created project at %s\n\n", util.ColorInfo(outDir))
+	log.Logger().Infof("Created project at %s\n", util.ColorInfo(outDir))
 
 	return o.ImportCreatedProject(outDir)
 }

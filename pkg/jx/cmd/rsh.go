@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
@@ -73,7 +75,7 @@ func NewCmdRsh(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Container, "container", "c", "", "The name of the container to log")
@@ -222,9 +224,7 @@ func (o *RshOptions) Run() error {
 	} else if len(commandArguments) > 0 {
 		a = append(a, commandArguments...)
 	}
-	if o.Verbose {
-		log.Infof("Running command: kubectl %s\n", strings.Join(a, " "))
-	}
+	log.Logger().Debugf("Running command: kubectl %s", strings.Join(a, " "))
 	return o.RunCommandInteractive(true, "kubectl", a...)
 }
 

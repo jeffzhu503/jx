@@ -2,6 +2,7 @@ package cmd
 
 import (
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/spf13/cobra"
@@ -58,7 +59,7 @@ func NewCmdCreatePostPreviewJob(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Name, optionName, "n", "", "The name of the job")
@@ -106,7 +107,7 @@ func (o *CreatePostPreviewJobOptions) Run() error {
 					container.Command = commands
 				}
 				job.Spec.BackoffLimit = &o.BackoffLimit
-				log.Infof("Updating the post Preview Job: %s\n", util.ColorInfo(name))
+				log.Logger().Infof("Updating the post Preview Job: %s", util.ColorInfo(name))
 				return nil
 			}
 		}
@@ -125,7 +126,7 @@ func (o *CreatePostPreviewJobOptions) Run() error {
 				BackoffLimit: &o.BackoffLimit,
 			},
 		})
-		log.Infof("Added the post Preview Job: %s\n", util.ColorInfo(name))
+		log.Logger().Infof("Added the post Preview Job: %s", util.ColorInfo(name))
 		return nil
 	}
 	return o.ModifyDevEnvironment(callback)

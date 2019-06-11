@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/builds"
 
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
@@ -62,7 +64,7 @@ func NewCmdEditBuildpack(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.BuildPackURL, "url", "u", "", "The URL for the build pack Git repository")
@@ -138,16 +140,22 @@ func (o *EditBuildPackOptions) Run() error {
 					}
 				}
 			}
-			label, err := util.PickNameWithDefault(labels, "Pick default workload build pack: ", defaultValue, "Build packs are used to automate your CI/CD pipelines when you create or import projects", o.In, o.Out, o.Err)
-			if err != nil {
-				return err
+			var label string
+			if o.AdvancedMode {
+				label, err = util.PickNameWithDefault(labels, "Pick default workload build pack: ", defaultValue, "Build packs are used to automate your CI/CD pipelines when you create or import projects", o.In, o.Out, o.Err)
+				if err != nil {
+					return err
+				}
+			} else {
+				label = defaultValue
+				log.Logger().Infof(util.QuestionAnswer("Defaulting workload build pack", defaultValue))
 			}
 			buildPack := m[label]
 			if buildPack == nil {
 				return fmt.Errorf("No BuildPack found for label: %s", label)
 			}
 			if len(labels) == 1 {
-				log.Infof("Only one build pack %s so configuring this build pack for your team\n", util.ColorInfo(label))
+				log.Logger().Infof("Only one build pack %s so configuring this build pack for your team", util.ColorInfo(label))
 			}
 			buildPackURL = buildPack.Spec.GitURL
 			BuildPackRef = buildPack.Spec.GitRef
@@ -165,7 +173,7 @@ func (o *EditBuildPackOptions) Run() error {
 		}
 		teamSettings.BuildPackName = buildPackName
 
-		log.Infof("Setting the team build pack to %s repo: %s ref: %s\n", util.ColorInfo(buildPackName), util.ColorInfo(buildPackURL), util.ColorInfo(BuildPackRef))
+		log.Logger().Infof("Setting the team build pack to %s repo: %s ref: %s", util.ColorInfo(buildPackName), util.ColorInfo(buildPackURL), util.ColorInfo(BuildPackRef))
 		return nil
 	}
 	return o.ModifyDevEnvironment(callback)

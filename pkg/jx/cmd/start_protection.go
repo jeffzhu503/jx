@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	gojenkins "github.com/jenkins-x/golang-jenkins"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
@@ -56,7 +58,7 @@ func NewCmdStartProtection(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	// TODO once we support get pipelines for Prow we can add support for a selector
@@ -92,6 +94,6 @@ func (o *StartProtectionOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("%s enabled for %s\n", util.ColorInfo(context), util.ColorInfo(orgrepo))
+	log.Logger().Infof("%s enabled for %s", util.ColorInfo(context), util.ColorInfo(orgrepo))
 	return nil
 }

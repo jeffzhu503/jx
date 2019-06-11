@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/cloud"
 	"github.com/jenkins-x/jx/pkg/cloud/amazon"
 	"github.com/jenkins-x/jx/pkg/features"
@@ -71,15 +73,15 @@ func NewCmdCreateClusterEKS(commonOpts *opts.CommonOptions) *cobra.Command {
 		Example: createClusterEKSExample,
 		PreRun: func(cmd *cobra.Command, args []string) {
 			err := features.IsEnabled(cmd)
-			CheckErr(err)
+			helper.CheckErr(err)
 			err = options.InstallOptions.CheckFeatures()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -108,15 +110,15 @@ func (o *CreateClusterEKSOptions) Run() error {
 	if d != "" {
 		deps = append(deps, d)
 	}
-	d = opts.BinaryShouldBeInstalled("heptio-authenticator-aws")
+	d = opts.BinaryShouldBeInstalled("aws-iam-authenticator")
 
 	if d != "" {
 		deps = append(deps, d)
 	}
-	log.Debugf("Dependencies to be installed: %s", strings.Join(deps, ", "))
+	log.Logger().Debugf("Dependencies to be installed: %s", strings.Join(deps, ", "))
 	err := o.InstallMissingDependencies(deps)
 	if err != nil {
-		log.Errorf("%v\nPlease fix the error or install manually then try again", err)
+		log.Logger().Errorf("%v\nPlease fix the error or install manually then try again", err)
 		os.Exit(-1)
 	}
 
@@ -136,7 +138,7 @@ func (o *CreateClusterEKSOptions) Run() error {
 			return err
 		}
 		if clusterExists {
-			log.Infof("EKS cluster %s already exists.", util.ColorInfo(flags.ClusterName))
+			log.Logger().Infof("EKS cluster %s already exists.", util.ColorInfo(flags.ClusterName))
 			return nil
 		} else {
 			stackExists, err := amazon.EksClusterObsoleteStackExists(flags.ClusterName, flags.Profile, flags.Region)
@@ -144,7 +146,7 @@ func (o *CreateClusterEKSOptions) Run() error {
 				return err
 			}
 			if stackExists {
-				log.Infof(
+				log.Logger().Infof(
 					`Cloud formation stack named %s exists in rollbacked state. At the same 
 time there is no EKS cluster associated with it. This usually happens when there was an error during 
 cluster provisioning. Cleaning up stack %s and recreating it with eksctl.`,
@@ -193,26 +195,21 @@ cluster provisioning. Cleaning up stack %s and recreating it with eksctl.`,
 	}
 	args = append(args, "--aws-api-timeout", flags.AWSOperationTimeout.String())
 
-	log.Info("Creating EKS cluster - this can take a while so please be patient...")
-	log.Infof("You can watch progress in the CloudFormation console: %s", util.ColorInfo("https://console.aws.amazon.com/cloudformation/"))
+	log.Logger().Info("Creating EKS cluster - this can take a while so please be patient...")
+	log.Logger().Infof("You can watch progress in the CloudFormation console: %s", util.ColorInfo("https://console.aws.amazon.com/cloudformation/"))
 
-	log.Debugf("Running command: %s", util.ColorInfo("eksctl "+strings.Join(args, " ")))
-	if o.Verbose {
-		err = o.RunCommandVerbose("eksctl", args...)
-		if err != nil {
-			return err
-		}
-		log.Blank()
-	} else {
-		err = o.RunCommandQuietly("eksctl", args...)
-		if err != nil {
-			return err
-		}
+	log.Logger().Debugf("Running command: %s", util.ColorInfo("eksctl "+strings.Join(args, " ")))
+
+	err = o.RunCommandVerbose("eksctl", args...)
+	if err != nil {
+		return err
 	}
+	log.Blank()
+
 	o.InstallOptions.setInstallValues(map[string]string{
 		kube.Region: region,
 	})
 
-	log.Info("Initialising cluster ...\n")
+	log.Logger().Info("Initialising cluster ...")
 	return o.initAndInstall(cloud.EKS)
 }

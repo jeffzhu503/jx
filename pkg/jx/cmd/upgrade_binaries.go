@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"io/ioutil"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -40,7 +41,7 @@ func NewCmdUpgradeBinaries(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	return cmd
@@ -62,8 +63,8 @@ func (o *UpgradeBinariesOptions) Run() error {
 			if err != nil {
 				return err
 			}
-		} else if binary.Name() == "heptio-authenticator-aws" {
-			err = o.InstallHeptioAuthenticatorAws(true)
+		} else if binary.Name() == "aws-iam-authenticator" {
+			err = o.InstallAwsIamAuthenticator(true)
 			if err != nil {
 				return err
 			}

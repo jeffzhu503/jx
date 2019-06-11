@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
+	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/spf13/cobra"
 	"gopkg.in/AlecAivazis/survey.v1"
 )
@@ -53,7 +55,7 @@ var (
 		"oci",
 		"aws",
 		"eksctl",
-		"heptio-authenticator-aws",
+		"aws-iam-authenticator",
 		"kustomize",
 	}
 )
@@ -72,7 +74,7 @@ func NewCmdInstallDependencies(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 		SuggestFor: []string{"dependency"},
 	}
@@ -112,6 +114,6 @@ func (options *InstallDependenciesOptions) Run() error {
 		return options.DoInstallMissingDependencies(install)
 	}
 
-	options.Debugf("No dependencies selected to install\n")
+	log.Logger().Debugf("No dependencies selected to install")
 	return nil
 }

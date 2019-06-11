@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/jenkins-x/jx/pkg/cloud/amazon"
@@ -55,7 +57,7 @@ func NewCmdGetEks(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Profile, "profile", "", "", "AWS profile to use.")
@@ -72,13 +74,13 @@ func (o *GetEksOptions) Run() error {
 		if d != "" {
 			deps = append(deps, d)
 		}
-		d = opts.BinaryShouldBeInstalled("heptio-authenticator-aws")
+		d = opts.BinaryShouldBeInstalled("aws-iam-authenticator")
 		if d != "" {
 			deps = append(deps, d)
 		}
 		err := o.InstallMissingDependencies(deps)
 		if err != nil {
-			log.Errorf("%v\nPlease fix the error or install manually then try again", err)
+			log.Logger().Errorf("%v\nPlease fix the error or install manually then try again", err)
 			os.Exit(-1)
 		}
 

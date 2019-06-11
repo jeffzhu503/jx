@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -44,7 +46,7 @@ func NewCmdDeleteChatServer(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().BoolVarP(&options.IgnoreMissingServer, "ignore-missing", "i", false, "Silently ignore attempts to remove an chat server name that does not exist")
@@ -78,6 +80,6 @@ func (o *DeleteChatServerOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Deleted chat servers: %s from local settings\n", util.ColorInfo(strings.Join(args, ", ")))
+	log.Logger().Infof("Deleted chat servers: %s from local settings", util.ColorInfo(strings.Join(args, ", ")))
 	return nil
 }

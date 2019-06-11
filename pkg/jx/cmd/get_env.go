@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
@@ -25,7 +27,7 @@ type GetEnvOptions struct {
 var (
 	getEnvLong = templates.LongDesc(`
 		Display one or more environments.
-`)
+` + opts.SeeAlsoText("jx get previews"))
 
 	getEnvExample = templates.Examples(`
 		# List all environments
@@ -53,7 +55,7 @@ func NewCmdGetEnv(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -120,7 +122,7 @@ func (o *GetEnvOptions) Run() error {
 			return err
 		}
 		if len(envs.Items) == 0 {
-			log.Infof("No environments found.\nTo create an environment use: jx create env\n")
+			log.Logger().Infof("No environments found.\nTo create an environment use: jx create env")
 			return nil
 		}
 

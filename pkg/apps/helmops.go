@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"strings"
 
+	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/helm"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // HelmOpsOptions is the options used for Helm Operations for apps
@@ -52,7 +54,7 @@ func (o *HelmOpsOptions) AddApp(app string, chart string, name string, version s
 	if err != nil {
 		return errors.Wrapf(err, "creating the app %s in the Apps CRD", appCRDName)
 	}
-	log.Infof("Successfully installed %s %s\n", util.ColorInfo(name), util.ColorInfo(version))
+	log.Logger().Infof("Successfully installed %s %s", util.ColorInfo(name), util.ColorInfo(version))
 	return nil
 }
 
@@ -83,7 +85,7 @@ func (o *HelmOpsOptions) UpgradeApp(app string, version string, repository strin
 
 	branchNameText = fmt.Sprintf("upgrade-all-apps")
 	title = fmt.Sprintf("Upgrade all apps")
-	message = fmt.Sprintf("Upgrade all apps:\n")
+	message = fmt.Sprintf("Upgrade all apps:")
 
 	for _, d := range requirements.Dependencies {
 		upgrade := false
@@ -107,7 +109,7 @@ func (o *HelmOpsOptions) UpgradeApp(app string, version string, repository strin
 					return err
 				}
 				if o.Verbose {
-					log.Infof("No version specified so using latest version which is %s\n", util.ColorInfo(version))
+					log.Logger().Infof("No version specified so using latest version which is %s", util.ColorInfo(version))
 				}
 			}
 			// Do the upgrade
@@ -117,13 +119,26 @@ func (o *HelmOpsOptions) UpgradeApp(app string, version string, repository strin
 				title = fmt.Sprintf("Upgrade %s to %s", app, version)
 				message = fmt.Sprintf("Upgrade %s from %s to %s", app, oldVersion, version)
 			} else {
-				message = fmt.Sprintf("%s\n* %s from %s to %s", message, d.Name, oldVersion, version)
+				message = fmt.Sprintf("%s* %s from %s to %s", message, d.Name, oldVersion, version)
 			}
 		}
 	}
 
 	if !upgraded {
-		log.Infof("No upgrades available\n")
+		log.Logger().Infof("No upgrades available")
 	}*/
 	return nil
+}
+
+func (o *HelmOpsOptions) getAppsFromCRDAPI(appNames []string) (*v1.AppList, error) {
+	listOptions := metav1.ListOptions{}
+	if len(appNames) > 0 {
+		selector := fmt.Sprintf(helm.LabelAppName+" in (%s)", strings.Join(appNames, ", "))
+		listOptions.LabelSelector = selector
+	}
+	apps, err := o.JxClient.JenkinsV1().Apps(o.Namespace).List(listOptions)
+	if err != nil {
+		return nil, errors.Wrap(err, "listing apps")
+	}
+	return apps, nil
 }

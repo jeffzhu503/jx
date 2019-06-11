@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/spf13/cobra"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -48,7 +49,7 @@ func NewCmdCreateAddonOwasp(commonOpts *opts.CommonOptions) *cobra.Command {
 		Example: createAddonOwaspExample,
 		Run: func(cmd *cobra.Command, args []string) {
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -95,7 +96,7 @@ func (o *CreateAddonOwaspOptions) Run() error {
 					container.Command = commands
 				}
 				job.Spec.BackoffLimit = &o.BackoffLimit
-				log.Infof("Updating the post Preview Job: %s\n", util.ColorInfo(name))
+				log.Logger().Infof("Updating the post Preview Job: %s", util.ColorInfo(name))
 				return nil
 			}
 		}
@@ -114,7 +115,7 @@ func (o *CreateAddonOwaspOptions) Run() error {
 				BackoffLimit: &o.BackoffLimit,
 			},
 		})
-		log.Infof("Added the post Preview Job: %s\n", util.ColorInfo(name))
+		log.Logger().Infof("Added the post Preview Job: %s", util.ColorInfo(name))
 		return nil
 	}
 	return o.ModifyDevEnvironment(callback)

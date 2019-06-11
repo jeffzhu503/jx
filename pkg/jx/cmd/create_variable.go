@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/config"
 	"github.com/jenkins-x/jx/pkg/jenkinsfile"
 	"github.com/jenkins-x/jx/pkg/jenkinsfile/gitresolver"
@@ -60,7 +62,7 @@ func NewCmdCreateVariable(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -145,7 +147,7 @@ func (o *CreateVariableOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Updated Jenkins X Pipeline file: %s\n", util.ColorInfo(fileName))
+	log.Logger().Infof("Updated Jenkins X Pipeline file: %s", util.ColorInfo(fileName))
 	return nil
 
 }
@@ -211,7 +213,7 @@ func (o *CreateVariableOptions) loadEnvVars(projectConfig *config.ProjectConfig)
 	if err != nil {
 		return answer, err
 	}
-	containerName := pipelineConfig.Agent.Container
+	containerName := pipelineConfig.Agent.GetImage()
 	if containerName != "" && podTemplates != nil && podTemplates[containerName] != nil {
 		podTemplate := podTemplates[containerName]
 		if len(podTemplate.Spec.Containers) > 0 {

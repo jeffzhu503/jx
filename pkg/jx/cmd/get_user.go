@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -46,7 +48,7 @@ func NewCmdGetUser(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().BoolVarP(&options.Pending, "pending", "p", false, "Display only pending Users which are not yet provisioned yet")
@@ -71,7 +73,7 @@ func (o *GetUserOptions) Run() error {
 	}
 
 	if len(names) == 0 {
-		log.Info(`
+		log.Logger().Info(`
 There are no Users yet. Try create one via: jx create user
 `)
 		return nil
@@ -86,7 +88,7 @@ There are no Users yet. Try create one via: jx create user
 			userKind := user.SubjectKind()
 			roleNames, err := kube.GetUserRoles(kubeClient, jxClient, ns, userKind, name)
 			if err != nil {
-				log.Warnf("Failed to find User roles in namespace %s for User %s kind %s: %s\n", ns, name, userKind, err)
+				log.Logger().Warnf("Failed to find User roles in namespace %s for User %s kind %s: %s", ns, name, userKind, err)
 			}
 			table.AddRow(name, spec.Name, spec.Email, spec.URL, strings.Join(roleNames, ", "))
 		}

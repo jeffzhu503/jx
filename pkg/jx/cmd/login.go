@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/chromedp/chromedp/runner"
 	"github.com/hpcloud/tail"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -81,7 +83,7 @@ func NewCmdLogin(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -114,7 +116,7 @@ func (o *LoginOptions) Run() error {
 		return errors.Wrap(err, "updating the ~/kube/config file")
 	}
 
-	jxlog.Infof("You are %s. You credentials are stored in %s file.\n",
+	jxlog.Logger().Infof("You are %s. You credentials are stored in %s file.",
 		util.ColorInfo("successfully logged in"), util.ColorInfo("~/.kube/config"))
 
 	teamOptions := TeamOptions{
@@ -149,6 +151,7 @@ func (o *LoginOptions) Login() (*UserLoginInfo, error) {
 		m["user-data-dir"] = userDataDir
 		m["log-net-log"] = netLogFile
 		m["net-log-capture-mode"] = "IncludeCookiesAndCredentials"
+		m["disable-features"] = "NetworkService"
 		m["v"] = 1
 		return nil
 	}

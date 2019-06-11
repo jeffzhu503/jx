@@ -6,10 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/jenkins-x/jx/pkg/gits"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/step/git"
 
 	"github.com/ghodss/yaml"
 	"github.com/jenkins-x/jx/pkg/collector"
@@ -65,7 +66,7 @@ func NewCmdControllerBuild(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 		Aliases: []string{"builds"},
 	}
@@ -120,9 +121,19 @@ func (o *ControllerBuildOptions) Run() error {
 		}
 	}
 
+	err = o.ensureSourceRepositoryHasLabels(jxClient, ns)
+	if err != nil {
+		return errors.Wrap(err, "failed to label the PipelineActivity resources")
+	}
+
+	err = o.ensurePipelineActivityHasLabels(jxClient, ns)
+	if err != nil {
+		return errors.Wrap(err, "failed to label the PipelineActivity resources")
+	}
+
 	if tektonEnabled {
 		pod := &corev1.Pod{}
-		log.Infof("Watching for Pods in namespace %s\n", util.ColorInfo(ns))
+		log.Logger().Infof("Watching for Pods in namespace %s", util.ColorInfo(ns))
 		listWatch := cache.NewListWatchFromClient(kubeClient.CoreV1().RESTClient(), "pods", ns, fields.Everything())
 		kube.SortListWatchByName(listWatch)
 		_, controller := cache.NewInformer(
@@ -145,7 +156,7 @@ func (o *ControllerBuildOptions) Run() error {
 		go controller.Run(stop)
 	} else {
 		pod := &corev1.Pod{}
-		log.Infof("Watching for Knative build pods in namespace %s\n", util.ColorInfo(ns))
+		log.Logger().Infof("Watching for Knative build pods in namespace %s", util.ColorInfo(ns))
 		listWatch := cache.NewListWatchFromClient(kubeClient.CoreV1().RESTClient(), "pods", ns, fields.Everything())
 		kube.SortListWatchByName(listWatch)
 		_, controller := cache.NewInformer(
@@ -175,7 +186,7 @@ func (o *ControllerBuildOptions) Run() error {
 func (o *ControllerBuildOptions) onPod(obj interface{}, kubeClient kubernetes.Interface, jxClient versioned.Interface, ns string) {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
-		log.Infof("Object is not a Pod %#v\n", obj)
+		log.Logger().Infof("Object is not a Pod %#v", obj)
 		return
 	}
 	if pod != nil {
@@ -194,9 +205,7 @@ func (o *ControllerBuildOptions) handleStandalonePod(pod *corev1.Pod, kubeClient
 			buildName = labels[builds.LabelPipelineRunName]
 		}
 		if buildName != "" {
-			if o.Verbose {
-				log.Infof("Found build pod %s\n", pod.Name)
-			}
+			log.Logger().Debugf("Found build pod %s", pod.Name)
 
 			activities := jxClient.JenkinsV1().PipelineActivities(ns)
 			key := o.createPromoteStepActivityKey(buildName, pod)
@@ -209,16 +218,14 @@ func (o *ControllerBuildOptions) handleStandalonePod(pod *corev1.Pod, kubeClient
 						if created {
 							operation = "create"
 						}
-						log.Warnf("Failed to %s PipelineActivities for build %s: %s\n", operation, buildName, err)
+						log.Logger().Warnf("Failed to %s PipelineActivities for build %s: %s", operation, buildName, err)
 						return err
 					}
 					if o.updatePipelineActivity(kubeClient, ns, a, buildName, pod) {
-						if o.Verbose {
-							log.Infof("updating PipelineActivity %s\n", a.Name)
-						}
+						log.Logger().Debugf("updating PipelineActivity %s", a.Name)
 						_, err := activities.PatchUpdate(a)
 						if err != nil {
-							log.Warnf("Failed to update PipelineActivity %s due to: %s\n", a.Name, err.Error())
+							log.Logger().Warnf("Failed to update PipelineActivity %s due to: %s", a.Name, err.Error())
 							name = a.Name
 							return err
 						}
@@ -226,7 +233,7 @@ func (o *ControllerBuildOptions) handleStandalonePod(pod *corev1.Pod, kubeClient
 					return nil
 				})
 				if err != nil {
-					log.Warnf("Failed to update PipelineActivities %s: %s\n", name, err)
+					log.Logger().Warnf("Failed to update PipelineActivities %s: %s", name, err)
 				}
 			}
 		}
@@ -237,7 +244,7 @@ func (o *ControllerBuildOptions) handleStandalonePod(pod *corev1.Pod, kubeClient
 func (o *ControllerBuildOptions) onPipelinePod(obj interface{}, kubeClient kubernetes.Interface, jxClient versioned.Interface, tektonClient tektonclient.Interface, ns string) {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
-		log.Infof("Object is not a Pod %#v\n", obj)
+		log.Logger().Infof("Object is not a Pod %#v", obj)
 		return
 	}
 	if pod != nil {
@@ -246,7 +253,7 @@ func (o *ControllerBuildOptions) onPipelinePod(obj interface{}, kubeClient kuber
 				prName := pod.Labels[pipeline.GroupName+pipeline.PipelineRunLabelKey]
 				pr, err := tektonClient.TektonV1alpha1().PipelineRuns(ns).Get(prName, metav1.GetOptions{})
 				if err != nil {
-					log.Warnf("Error getting PipelineRun for name %s: %s\n", prName, err)
+					log.Logger().Warnf("Error getting PipelineRun for name %s: %s", prName, err)
 					return
 				}
 				// Get the Pod for this PipelineRun
@@ -254,23 +261,21 @@ func (o *ControllerBuildOptions) onPipelinePod(obj interface{}, kubeClient kuber
 					LabelSelector: builds.LabelPipelineRunName + "=" + prName,
 				})
 				if err != nil {
-					log.Warnf("Error getting PodList for PipelineRun %s: %s\n", prName, err)
+					log.Logger().Warnf("Error getting PodList for PipelineRun %s: %s", prName, err)
 					return
 				}
 				structure, err := jxClient.JenkinsV1().PipelineStructures(ns).Get(prName, metav1.GetOptions{})
 				if err != nil {
-					log.Warnf("Error getting PipelineStructure for PipelineRun %s: %s\n", prName, err)
+					log.Logger().Warnf("Error getting PipelineStructure for PipelineRun %s: %s", prName, err)
 					return
 				}
 				pri, err := tekton.CreatePipelineRunInfo(prName, podList, structure, pr)
 				if err != nil {
-					log.Warnf("Error creating PipelineRunInfo for PipelineRun %s: %s\n", prName, err)
+					log.Logger().Warnf("Error creating PipelineRunInfo for PipelineRun %s: %s", prName, err)
 					return
 				}
 				if pri != nil {
-					if o.Verbose {
-						log.Infof("Found pipeline run %s\n", pri.Name)
-					}
+					log.Logger().Debugf("Found pipeline run %s", pri.Name)
 
 					activities := jxClient.JenkinsV1().PipelineActivities(ns)
 					key := o.createPromoteStepActivityKeyFromRun(pri)
@@ -283,16 +288,14 @@ func (o *ControllerBuildOptions) onPipelinePod(obj interface{}, kubeClient kuber
 								if created {
 									operation = "create"
 								}
-								log.Warnf("Failed to %s PipelineActivities for build %s: %s\n", operation, pri.Name, err)
+								log.Logger().Warnf("Failed to %s PipelineActivities for build %s: %s", operation, pri.Name, err)
 								return err
 							}
 							if o.updatePipelineActivityForRun(kubeClient, ns, a, pri, pod) {
-								if o.Verbose {
-									log.Infof("updating PipelineActivity %s\n", a.Name)
-								}
+								log.Logger().Debugf("updating PipelineActivity %s", a.Name)
 								_, err := activities.PatchUpdate(a)
 								if err != nil {
-									log.Warnf("Failed to update PipelineActivity %s due to: %s\n", a.Name, err.Error())
+									log.Logger().Warnf("Failed to update PipelineActivity %s due to: %s", a.Name, err.Error())
 									name = a.Name
 									return err
 								}
@@ -300,7 +303,7 @@ func (o *ControllerBuildOptions) onPipelinePod(obj interface{}, kubeClient kuber
 							return nil
 						})
 						if err != nil {
-							log.Warnf("Failed to update PipelineActivities%s: %s\n", name, err)
+							log.Logger().Warnf("Failed to update PipelineActivities%s: %s", name, err)
 						}
 					}
 				}
@@ -336,7 +339,7 @@ func (o *ControllerBuildOptions) createPromoteStepActivityKey(buildName string, 
 // If the PA is a branch build it then sets the commit author and last commit message
 func (o *ControllerBuildOptions) completeBuildSourceInfo(activity *v1.PipelineActivity) error {
 
-	log.Infof("[BuildInfo] Completing build info for PipelineActivity=%s\n", activity.Name)
+	log.Logger().Infof("[BuildInfo] Completing build info for PipelineActivity=%s", activity.Name)
 
 	gitInfo, err := gits.ParseGitURL(activity.Spec.GitURL)
 	if err != nil {
@@ -378,7 +381,7 @@ func (o *ControllerBuildOptions) completeBuildSourceInfo(activity *v1.PipelineAc
 			activity.Spec.Author = pr.Author.Login
 		}
 		activity.Spec.PullTitle = pr.Title
-		log.Infof("[BuildInfo] PipelineActivity set with author=%s and PR title=%s\n", activity.Spec.Author, activity.Spec.PullTitle)
+		log.Logger().Infof("[BuildInfo] PipelineActivity set with author=%s and PR title=%s", activity.Spec.Author, activity.Spec.PullTitle)
 	} else {
 		// this is a branch build
 		gitCommits, e := provider.ListCommits(gitInfo.Organisation, gitInfo.Name, &gits.ListCommitsArguments{
@@ -395,7 +398,7 @@ func (o *ControllerBuildOptions) completeBuildSourceInfo(activity *v1.PipelineAc
 				activity.Spec.LastCommitMessage = gitCommits[0].Message
 			}
 		}
-		log.Infof("[BuildInfo] PipelineActicity set with author=%s and last message\n", activity.Spec.Author)
+		log.Logger().Infof("[BuildInfo] PipelineActicity set with author=%s and last message", activity.Spec.Author)
 	}
 	return nil
 }
@@ -539,35 +542,36 @@ func (o *ControllerBuildOptions) updatePipelineActivity(kubeClient kubernetes.In
 		if !biggestFinishedAt.IsZero() {
 			spec.CompletedTimestamp = &biggestFinishedAt
 		}
+
+		// log that the build completed
+		logJobCompletedState(activity)
+
 		// lets ensure we overwrite any canonical jenkins build URL thats generated automatically
 		if spec.BuildLogsURL == "" || !strings.Contains(spec.BuildLogsURL, pod.Name) {
 			podInterface := kubeClient.CoreV1().Pods(ns)
 
 			envName := kube.LabelValueDevEnvironment
 			devEnv := o.EnvironmentCache.Item(envName)
-			var location *v1.StorageLocation
+			location := v1.StorageLocation{}
 			settings := &devEnv.Spec.TeamSettings
 			if devEnv == nil {
-				log.Warnf("No Environment %s found\n", envName)
+				log.Logger().Warnf("No Environment %s found", envName)
 			} else {
 				location = settings.StorageLocationOrDefault(kube.ClassificationLogs)
-			}
-			if location == nil {
-				location = &v1.StorageLocation{}
 			}
 			if location.IsEmpty() {
 				location.GitURL = activity.Spec.GitURL
 				if location.GitURL == "" {
-					log.Warnf("No GitURL on PipelineActivity %s\n", activity.Name)
+					log.Logger().Warnf("No GitURL on PipelineActivity %s", activity.Name)
 				}
 			}
 			masker, err := kube.NewLogMasker(kubeClient, ns)
 			if err != nil {
-				log.Warnf("Failed to create LogMasker in namespace %s: %s\n", ns, err.Error())
+				log.Logger().Warnf("Failed to create LogMasker in namespace %s: %s", ns, err.Error())
 			}
 			logURL, err := o.generateBuildLogURL(podInterface, ns, activity, buildName, pod, location, settings, o.InitGitCredentials, masker)
 			if err != nil {
-				log.Warnf("%s\n", err)
+				log.Logger().Warnf("%s", err)
 			}
 			if logURL != "" {
 				spec.BuildLogsURL = logURL
@@ -584,7 +588,7 @@ func (o *ControllerBuildOptions) updatePipelineActivity(kubeClient kubernetes.In
 	if spec.Author == "" {
 		err := o.completeBuildSourceInfo(activity)
 		if err != nil {
-			log.Warnf("Error completing build information: %s", err)
+			log.Logger().Warnf("Error completing build information: %s", err)
 		}
 	}
 
@@ -651,39 +655,37 @@ func (o *ControllerBuildOptions) updatePipelineActivityForRun(kubeClient kuberne
 			spec.CompletedTimestamp = &biggestFinishedAt
 		}
 
+		// log that the build completed
+		logJobCompletedState(activity)
+
 		// lets ensure we overwrite any canonical jenkins build URL thats generated automatically
 		if spec.BuildLogsURL == "" {
 			podInterface := kubeClient.CoreV1().Pods(ns)
 
 			envName := kube.LabelValueDevEnvironment
 			devEnv := o.EnvironmentCache.Item(envName)
-			var location *v1.StorageLocation
+			location := v1.StorageLocation{}
 			settings := &devEnv.Spec.TeamSettings
 			if devEnv == nil {
-				log.Warnf("No Environment %s found\n", envName)
+				log.Logger().Warnf("No Environment %s found", envName)
 			} else {
 				location = settings.StorageLocationOrDefault(kube.ClassificationLogs)
-			}
-			if location == nil {
-				location = &v1.StorageLocation{}
 			}
 			if location.IsEmpty() {
 				location.GitURL = activity.Spec.GitURL
 				if location.GitURL == "" {
-					log.Warnf("No GitURL on PipelineActivity %s\n", activity.Name)
+					log.Logger().Warnf("No GitURL on PipelineActivity %s", activity.Name)
 				}
 			}
 
 			masker, err := kube.NewLogMasker(kubeClient, ns)
 			if err != nil {
-				log.Warnf("Failed to create LogMasker in namespace %s: %s\n", ns, err.Error())
+				log.Logger().Warnf("Failed to create LogMasker in namespace %s: %s", ns, err.Error())
 			}
 
 			logURL, err := o.generateBuildLogURL(podInterface, ns, activity, pri.PipelineRun, pod, location, settings, o.InitGitCredentials, masker)
 			if err != nil {
-				if o.Verbose {
-					log.Warnf("%s\n", err)
-				}
+				log.Logger().Warnf("%s", err)
 			}
 			if logURL != "" {
 				spec.BuildLogsURL = logURL
@@ -701,7 +703,7 @@ func (o *ControllerBuildOptions) updatePipelineActivityForRun(kubeClient kuberne
 	if spec.Author == "" {
 		err := o.completeBuildSourceInfo(activity)
 		if err != nil {
-			log.Warnf("Error completing build information: %s", err)
+			log.Logger().Warnf("Error completing build information: %s", err)
 		}
 	}
 
@@ -902,7 +904,7 @@ func toYamlString(resource interface{}) string {
 }
 
 // generates the build log URL and returns the URL
-func (o *ControllerBuildOptions) generateBuildLogURL(podInterface typedcorev1.PodInterface, ns string, activity *v1.PipelineActivity, buildName string, pod *corev1.Pod, location *v1.StorageLocation, settings *v1.TeamSettings, initGitCredentials bool, logMasker *kube.LogMasker) (string, error) {
+func (o *ControllerBuildOptions) generateBuildLogURL(podInterface typedcorev1.PodInterface, ns string, activity *v1.PipelineActivity, buildName string, pod *corev1.Pod, location v1.StorageLocation, settings *v1.TeamSettings, initGitCredentials bool, logMasker *kube.LogMasker) (string, error) {
 
 	coll, err := collector.NewCollector(location, settings, o.Git())
 	if err != nil {
@@ -918,23 +920,22 @@ func (o *ControllerBuildOptions) generateBuildLogURL(podInterface typedcorev1.Po
 	if logMasker != nil {
 		data = logMasker.MaskLogData(data)
 	}
-	if o.Verbose {
-		log.Infof("got build log for pod: %s PipelineActivity: %s with bytes: %d\n", pod.Name, activity.Name, len(data))
-	}
+
+	log.Logger().Debugf("got build log for pod: %s PipelineActivity: %s with bytes: %d", pod.Name, activity.Name, len(data))
 
 	if initGitCredentials {
-		gc := &StepGitCredentialsOptions{}
+		gc := &git.StepGitCredentialsOptions{}
 		copy := *o.CommonOptions
 		gc.CommonOptions = &copy
 		gc.BatchMode = true
-		log.Info("running: jx step git credentials\n")
+		log.Logger().Info("running: jx step git credentials")
 		err = gc.Run()
 		if err != nil {
 			return "", errors.Wrapf(err, "Failed to setup git credentials")
 		}
 	}
 
-	owner := activity.Spec.GitOwner
+	owner := activity.RepositoryOwner()
 	repository := activity.RepositoryName()
 	branch := activity.BranchName()
 	buildNumber := activity.Spec.Build
@@ -952,6 +953,110 @@ func (o *ControllerBuildOptions) generateBuildLogURL(podInterface typedcorev1.Po
 	return url, nil
 }
 
+// ensurePipelineActivityHasLabels older versions of controller build did not add labels properly
+// so lets enrich PipelineActivity on startup
+func (o *ControllerBuildOptions) ensurePipelineActivityHasLabels(jxClient versioned.Interface, ns string) error {
+	activities := jxClient.JenkinsV1().PipelineActivities(ns)
+	actList, err := activities.List(metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	for _, act := range actList.Items {
+		updated := false
+		if act.Labels == nil {
+			act.Labels = map[string]string{}
+		}
+		provider := kube.ToProviderName(act.Spec.GitURL)
+		owner := act.RepositoryOwner()
+		repository := act.RepositoryName()
+		branch := act.BranchName()
+		build := act.Spec.Build
+
+		if act.Labels[v1.LabelProvider] != provider && provider != "" {
+			act.Labels[v1.LabelProvider] = provider
+			updated = true
+		}
+		if act.Labels[v1.LabelOwner] != owner && owner != "" {
+			act.Labels[v1.LabelOwner] = owner
+			updated = true
+		}
+		if act.Labels[v1.LabelRepository] != repository && repository != "" {
+			act.Labels[v1.LabelRepository] = repository
+			updated = true
+		}
+		if act.Labels[v1.LabelBranch] != branch && branch != "" {
+			act.Labels[v1.LabelBranch] = branch
+			updated = true
+		}
+		if act.Labels[v1.LabelBuild] != build && build != "" {
+			act.Labels[v1.LabelBuild] = build
+			updated = true
+		}
+		if updated {
+			err = o.Retry(3, time.Second*3, func() error {
+				resource, err := activities.Get(act.Name, metav1.GetOptions{})
+				if err != nil {
+					return err
+				}
+				resource.Labels = act.Labels
+				_, err = activities.Update(resource)
+				return err
+			})
+			if err != nil {
+				return errors.Wrapf(err, "failed to modify labels on PipelineActivity %s", act.Name)
+			}
+			log.Logger().Infof("updated labels on PipelineActivity %s", util.ColorInfo(act.Name))
+		}
+	}
+	return nil
+}
+
+func (o *ControllerBuildOptions) ensureSourceRepositoryHasLabels(jxClient versioned.Interface, ns string) error {
+	sourceRepositoryInterface := jxClient.JenkinsV1().SourceRepositories(ns)
+	srList, err := sourceRepositoryInterface.List(metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+	for _, sr := range srList.Items {
+		updated := false
+		if sr.Labels == nil {
+			sr.Labels = map[string]string{}
+		}
+		provider := kube.ToProviderName(sr.Spec.Provider)
+		owner := sr.Spec.Org
+		repository := sr.Spec.Repo
+
+		if sr.Labels[v1.LabelProvider] != provider && provider != "" {
+			sr.Labels[v1.LabelProvider] = provider
+			updated = true
+		}
+		if sr.Labels[v1.LabelOwner] != owner && owner != "" {
+			sr.Labels[v1.LabelOwner] = owner
+			updated = true
+		}
+		if sr.Labels[v1.LabelRepository] != repository && repository != "" {
+			sr.Labels[v1.LabelRepository] = repository
+			updated = true
+		}
+		if updated {
+			err = o.Retry(3, time.Second*3, func() error {
+				resource, err := sourceRepositoryInterface.Get(sr.Name, metav1.GetOptions{})
+				if err != nil {
+					return err
+				}
+				resource.Labels = sr.Labels
+				_, err = sourceRepositoryInterface.Update(resource)
+				return err
+			})
+			if err != nil {
+				return errors.Wrapf(err, "failed to modify labels on SourceRepository %s", sr.Name)
+			}
+			log.Logger().Infof("updated labels on SourceRepository %s", util.ColorInfo(sr.Name))
+		}
+	}
+	return nil
+}
+
 // createStepDescription uses the spec of the container to return a description
 func createStepDescription(containerName string, pod *corev1.Pod) string {
 	containers, _, isInit := kube.GetContainersWithStatusAndIsInit(pod)
@@ -967,22 +1072,58 @@ func createStepDescription(containerName string, pod *corev1.Pod) string {
 	return ""
 }
 
-// DigitSuffix outputs digital suffix
-func DigitSuffix(text string) string {
-	answer := ""
-	for {
-		l := len(text)
-		if l == 0 {
-			return answer
+func logJobCompletedState(activity *v1.PipelineActivity) {
+	// log that the build completed
+	var gitProviderUrl string
+	if activity.Spec.GitURL != "" {
+		gitInfo, err := gits.ParseGitURL(activity.Spec.GitURL)
+		if err != nil {
+			log.Logger().Warnf("unable to parse %s as git url, %v", activity.Spec.GitURL, err)
 		}
-		lastChar := text[l-1:]
-		for _, rune := range lastChar {
-			if !unicode.IsDigit(rune) {
-				return answer
-			}
-			break
-		}
-		answer = lastChar + answer
-		text = text[0 : l-1]
+		gitProviderUrl = gitInfo.ProviderURL()
 	}
+
+	var prNumber string
+	// extract (org, repo, commit) or (org, repo, #PR) from key
+	if strings.HasPrefix(strings.ToUpper(activity.Spec.GitBranch), "PR-") {
+		// this is a PR build
+		prNumber = strings.Replace(strings.ToUpper(activity.Spec.GitBranch), "PR-", "", -1)
+	}
+
+	stages := make([]map[string]interface{}, 0)
+
+	for _, s := range activity.Spec.Steps {
+		if s.Kind == v1.ActivityStepKindTypeStage {
+			steps := make([]map[string]interface{}, 0)
+			for _, st := range s.Stage.Steps {
+				step := map[string]interface{}{
+					"name":     st.Name,
+					"status":   st.Status,
+					"duration": durationString(st.StartedTimestamp, st.CompletedTimestamp),
+				}
+				steps = append(steps, step)
+			}
+			stage := map[string]interface{}{
+				"name":     s.Stage.Name,
+				"status":   s.Stage.Status,
+				"duration": durationString(s.Stage.StartedTimestamp, s.Stage.CompletedTimestamp),
+				"steps":    steps,
+			}
+			stages = append(stages, stage)
+		}
+	}
+
+	fields := map[string]interface{}{
+		"name":              activity.Name,
+		"status":            activity.Spec.Status,
+		"gitOwner":          activity.Spec.GitOwner,
+		"gitRepo":           activity.Spec.GitRepository,
+		"gitProviderUrl":    gitProviderUrl,
+		"gitBranch":         activity.Spec.GitBranch,
+		"buildNumber":       activity.Spec.Build,
+		"pullRequestNumber": prNumber,
+		"duration":          durationString(activity.Spec.StartedTimestamp, activity.Spec.CompletedTimestamp),
+		"stages":            stages,
+	}
+	log.Logger().WithFields(fields).Infof("Build %s %s", activity.Name, activity.Spec.Status)
 }

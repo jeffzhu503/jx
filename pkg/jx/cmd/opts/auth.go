@@ -3,13 +3,18 @@ package opts
 import (
 	"fmt"
 
+	jxv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
+	v1fake "github.com/jenkins-x/jx/pkg/client/clientset/versioned/fake"
 	"github.com/jenkins-x/jx/pkg/config"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	apifake "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset/fake"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
 	"github.com/jenkins-x/jx/pkg/auth"
@@ -21,7 +26,7 @@ import (
 func (o *CommonOptions) CreateAddonAuthConfigService() (auth.ConfigService, error) {
 	secrets, err := o.LoadPipelineSecrets(kube.ValueKindAddon, "")
 	if err != nil {
-		log.Warnf("The current user cannot query pipeline addon secrets: %s", err)
+		log.Logger().Warnf("The current user cannot query pipeline addon secrets: %s", err)
 	}
 	return o.AddonAuthConfigService(secrets)
 }
@@ -35,6 +40,34 @@ func (o *CommonOptions) CreateGitAuthConfigServiceDryRun(dryRun bool) (auth.Conf
 	return o.CreateGitAuthConfigService()
 }
 
+// SetFakeKubeClient creates a fake KubeClient for CommonOptions
+// Use this in case there is no active cluster that can be used
+// to retrieve configuration information.
+func (o *CommonOptions) SetFakeKubeClient() error {
+	currentNamespace := "jx"
+	k8sObjects := []runtime.Object{}
+	jxObjects := []runtime.Object{}
+	devEnv := kube.NewPermanentEnvironment("dev")
+	devEnv.Spec.Namespace = currentNamespace
+	devEnv.Spec.Kind = jxv1.EnvironmentKindTypeDevelopment
+
+	k8sObjects = append(k8sObjects, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: currentNamespace,
+			Labels: map[string]string{
+				"tag": "",
+			},
+		},
+	})
+
+	client := fake.NewSimpleClientset(k8sObjects...)
+	o.SetKubeClient(client)
+	jxObjects = append(jxObjects, devEnv)
+	o.SetJxClient(v1fake.NewSimpleClientset(jxObjects...))
+	o.SetAPIExtensionsClient(apifake.NewSimpleClientset())
+	return nil
+}
+
 // CreateGitAuthConfigService creates git auth config service
 func (o *CommonOptions) CreateGitAuthConfigService() (auth.ConfigService, error) {
 	var secrets *corev1.SecretList
@@ -45,15 +78,15 @@ func (o *CommonOptions) CreateGitAuthConfigService() (auth.ConfigService, error)
 
 			kubeConfig, _, configLoadErr := o.Kube().LoadConfig()
 			if configLoadErr != nil {
-				log.Warnf("WARNING: Could not load config: %s", configLoadErr)
+				log.Logger().Warnf("WARNING: Could not load config: %s", configLoadErr)
 			}
 
 			ns := kube.CurrentNamespace(kubeConfig)
 			if ns == "" {
-				log.Warnf("WARNING: Could not get the current namespace")
+				log.Logger().Warnf("WARNING: Could not get the current namespace")
 			}
 
-			log.Warnf("WARNING: The current user cannot query secrets in the namespace %s: %s\n", ns, err)
+			log.Logger().Warnf("WARNING: The current user cannot query secrets in the namespace %s: %s", ns, err)
 		}
 	}
 
@@ -67,6 +100,7 @@ func (o *CommonOptions) CreateGitAuthConfigServiceFromSecrets(fileName string, s
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to find development namespace")
 	}
+
 	authConfigSvc, err := o.factory.CreateAuthConfigService(fileName, namespace)
 	if err != nil {
 		return authConfigSvc, err
@@ -93,7 +127,7 @@ func (o *CommonOptions) CreateGitAuthConfigServiceFromSecrets(fileName string, s
 			// if no config file is being used lets grab the git server from the current directory
 			server, err := o.Git().Server("")
 			if err != nil {
-				log.Warnf("WARNING: unable to get remote Git repo server, %v\n", err)
+				log.Logger().Warnf("WARNING: unable to get remote Git repo server, %v", err)
 				server = "https://github.com"
 			}
 			config.Servers = []*auth.AuthServer{
@@ -124,7 +158,7 @@ func (o *CommonOptions) CreateGitAuthConfigServiceFromSecrets(fileName string, s
 func (o *CommonOptions) CreateChatAuthConfigService() (auth.ConfigService, error) {
 	secrets, err := o.LoadPipelineSecrets(kube.ValueKindChat, "")
 	if err != nil {
-		log.Warnf("The current user cannot query pipeline chat secrets: %s", err)
+		log.Logger().Warnf("The current user cannot query pipeline chat secrets: %s", err)
 	}
 	_, namespace, err := o.KubeClientAndDevNamespace()
 	if err != nil {

@@ -3,11 +3,14 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/config"
 	"github.com/jenkins-x/jx/pkg/jenkinsfile"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
+	"github.com/jenkins-x/jx/pkg/tekton/syntax"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
 	survey "gopkg.in/AlecAivazis/survey.v1"
@@ -41,7 +44,7 @@ type NewStepDetails struct {
 	Pipeline  string
 	Lifecycle string
 	Mode      string
-	Step      jenkinsfile.PipelineStep
+	Step      syntax.Step
 }
 
 // AddToPipeline adds the step to the given pipeline configuration
@@ -84,7 +87,7 @@ func NewCmdCreateStep(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -100,12 +103,27 @@ func NewCmdCreateStep(commonOpts *opts.CommonOptions) *cobra.Command {
 
 // Run implements the command
 func (o *CreateStepOptions) Run() error {
+	projectConfig, fileName, err := o.AddStepToProjectConfig()
+	if err != nil {
+		return err
+	}
+	err = projectConfig.SaveConfig(fileName)
+	if err != nil {
+		return err
+	}
+	log.Logger().Infof("Updated Jenkins X Pipeline file: %s", util.ColorInfo(fileName))
+	return nil
+
+}
+
+// AddStepToProjectConfig creates the new step, adds it to the project config, and returns the modified project config.
+func (o *CreateStepOptions) AddStepToProjectConfig() (*config.ProjectConfig, string, error) {
 	dir := o.Dir
 	var err error
 	if dir == "" {
 		dir, _, err := o.Git().FindGitConfigDir(o.Dir)
 		if err != nil {
-			return err
+			return nil, "", err
 		}
 		if dir == "" {
 			dir = "."
@@ -113,27 +131,21 @@ func (o *CreateStepOptions) Run() error {
 	}
 	projectConfig, fileName, err := config.LoadProjectConfig(dir)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 
 	s := &o.NewStepDetails
 	err = o.configureNewStepDetails(s)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 
 	err = s.AddToPipeline(projectConfig)
 	if err != nil {
-		return err
+		return nil, "", err
 	}
 
-	err = projectConfig.SaveConfig(fileName)
-	if err != nil {
-		return err
-	}
-	log.Infof("Updated Jenkins X Pipeline file: %s\n", util.ColorInfo(fileName))
-	return nil
-
+	return projectConfig, fileName, nil
 }
 
 func (o *CreateStepOptions) configureNewStepDetails(stepDetails *NewStepDetails) error {
@@ -148,8 +160,8 @@ func (o *CreateStepOptions) configureNewStepDetails(stepDetails *NewStepDetails)
 		if s.Mode == "" {
 			s.Mode = defaultMode
 		}
-		if s.Step.Command == "" {
-			return util.MissingOption("sh")
+		if s.Step.GetCommand() == "" {
+			return util.MissingOption("command")
 		}
 		return nil
 	}
@@ -173,7 +185,7 @@ func (o *CreateStepOptions) configureNewStepDetails(stepDetails *NewStepDetails)
 			return err
 		}
 	}
-	if s.Step.Command == "" {
+	if s.Step.GetCommand() == "" {
 		prompt := &survey.Input{
 			Message: "Command for the new step: ",
 			Help:    "The shell command executed inside the container to implement this step",

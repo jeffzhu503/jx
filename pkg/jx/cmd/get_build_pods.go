@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/builds"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
@@ -61,7 +63,7 @@ func NewCmdGetBuildPods(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Namespace, "namespace", "n", "", "The namespace to look for the build pods. Defaults to the current namespace")
@@ -71,6 +73,7 @@ func NewCmdGetBuildPods(commonOpts *opts.CommonOptions) *cobra.Command {
 	cmd.Flags().StringVarP(&options.BuildFilter.Repository, "repo", "r", "", "Filters the build repository")
 	cmd.Flags().StringVarP(&options.BuildFilter.Branch, "branch", "", "", "Filters the branch")
 	cmd.Flags().StringVarP(&options.BuildFilter.Build, "build", "", "", "Filter a specific build number")
+	cmd.Flags().StringVarP(&options.BuildFilter.Context, "context", "", "", "Filters the context of the build")
 	return cmd
 }
 
@@ -90,7 +93,7 @@ func (o *GetBuildPodsOptions) Run() error {
 	jxPipelines := teamSettings.IsJenkinsXPipelines()
 	pods, err := builds.GetBuildPods(kubeClient, ns)
 	if err != nil {
-		log.Warnf("Failed to query pods %s\n", err)
+		log.Logger().Warnf("Failed to query pods %s", err)
 		return err
 	}
 

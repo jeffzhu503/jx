@@ -7,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jenkins"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	gojenkins "github.com/jenkins-x/golang-jenkins"
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/builds"
@@ -86,7 +89,7 @@ func NewCmdGetBuildLogs(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().BoolVarP(&options.Tail, "tail", "t", true, "Tails the build log to the current terminal")
@@ -99,8 +102,10 @@ func NewCmdGetBuildLogs(commonOpts *opts.CommonOptions) *cobra.Command {
 	cmd.Flags().StringVarP(&options.BuildFilter.Branch, "branch", "", "", "Filters the branch")
 	cmd.Flags().StringVarP(&options.BuildFilter.Build, "build", "", "", "The build number to view")
 	cmd.Flags().StringVarP(&options.BuildFilter.Pod, "pod", "", "", "The pod name to view")
+	cmd.Flags().StringVarP(&options.BuildFilter.Context, "context", "", "", "Filters the context of the build")
 	cmd.Flags().BoolVarP(&options.CurrentFolder, "current", "c", false, "Display logs using current folder as repo name, and parent folder as owner")
 	options.JenkinsSelector.AddFlags(cmd)
+	options.AddBaseFlags(cmd)
 
 	return cmd
 }
@@ -174,7 +179,7 @@ func (o *GetBuildLogsOptions) Run() error {
 		return err
 	}
 
-	log.Infof("%s %s\n", util.ColorStatus("view the log at:"), util.ColorInfo(util.UrlJoin(last.Url, "/console")))
+	log.Logger().Infof("%s %s", util.ColorStatus("view the log at:"), util.ColorInfo(util.UrlJoin(last.Url, "/console")))
 	return o.TailJenkinsBuildLog(&o.JenkinsSelector, name, &last)
 }
 
@@ -197,7 +202,7 @@ func (o *GetBuildLogsOptions) getLastJenkinsBuild(name string, buildNumber int) 
 		if job.Url == "" {
 			return fmt.Errorf("No Job exists yet called %s", name)
 		}
-		job.Url = switchJenkinsBaseURL(job.Url, jenkinsClient.BaseURL())
+		job.Url = jenkins.SwitchJenkinsBaseURL(job.Url, jenkinsClient.BaseURL())
 
 		if buildNumber > 0 {
 			last, err = jenkinsClient.GetBuild(job, buildNumber)
@@ -214,7 +219,7 @@ func (o *GetBuildLogsOptions) getLastJenkinsBuild(name string, buildNumber int) 
 				return fmt.Errorf("No build found for name %s", name)
 			}
 		}
-		last.Url = switchJenkinsBaseURL(last.Url, jenkinsClient.BaseURL())
+		last.Url = jenkins.SwitchJenkinsBaseURL(last.Url, jenkinsClient.BaseURL())
 		return err
 	}
 
@@ -283,7 +288,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 		}
 	}
 	if build == nil && !pickedPipeline && o.Wait {
-		log.Infof("waiting for pipeline %s to start...\n", util.ColorInfo(name))
+		log.Logger().Infof("waiting for pipeline %s to start...", util.ColorInfo(name))
 
 		// there's no pipeline with yet called 'name' so lets wait for it to start...
 		f := func() error {
@@ -304,7 +309,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 				}
 			}
 			if build == nil {
-				log.Infof("no build found in: %s\n", util.ColorInfo(strings.Join(names, ", ")))
+				log.Logger().Infof("no build found in: %s", util.ColorInfo(strings.Join(names, ", ")))
 				return fmt.Errorf("No pipeline exists yet: %s", name)
 			}
 			return nil
@@ -320,7 +325,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 
 	if tektonEnabled {
 		pr := build.(*tekton.PipelineRunInfo)
-		log.Infof("Build logs for %s\n", util.ColorInfo(name+suffix))
+		log.Logger().Infof("Build logs for %s", util.ColorInfo(name+suffix))
 		for _, stage := range pr.GetOrderedTaskStages() {
 			if stage.Pod == nil {
 				// The stage's pod hasn't been created yet, so let's wait a bit.
@@ -342,7 +347,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 					}
 
 					if stage.Pod == nil {
-						log.Infof("no pod found yet for stage %s in build %s\n", util.ColorInfo(stage.Name), util.ColorInfo(pr.PipelineRun))
+						log.Logger().Infof("no pod found yet for stage %s in build %s", util.ColorInfo(stage.Name), util.ColorInfo(pr.PipelineRun))
 						return fmt.Errorf("No pod for stage %s in build %s exists yet", stage.Name, pr.PipelineRun)
 					}
 
@@ -369,7 +374,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 						lastContainer := containerStatuses[i-1]
 						terminated := lastContainer.State.Terminated
 						if terminated != nil && terminated.ExitCode != 0 {
-							log.Warnf("container %s failed with exit code %d: %s\n", lastContainer.Name, terminated.ExitCode, terminated.Message)
+							log.Logger().Warnf("container %s failed with exit code %d: %s", lastContainer.Name, terminated.ExitCode, terminated.Message)
 						}
 					}
 				}
@@ -394,7 +399,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 			return fmt.Errorf("No Containers for Pod %s for build: %s", pod.Name, name)
 		}
 
-		log.Infof("Build logs for %s\n", util.ColorInfo(name+suffix))
+		log.Logger().Infof("Build logs for %s", util.ColorInfo(name+suffix))
 		for i, ic := range containers {
 			pod, err := kubeClient.CoreV1().Pods(ns).Get(pod.Name, metav1.GetOptions{})
 			if err != nil {
@@ -406,7 +411,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 					lastContainer := containerStatuses[i-1]
 					terminated := lastContainer.State.Terminated
 					if terminated != nil && terminated.ExitCode != 0 {
-						log.Warnf("container %s failed with exit code %d: %s\n", lastContainer.Name, terminated.ExitCode, terminated.Message)
+						log.Logger().Warnf("container %s failed with exit code %d: %s", lastContainer.Name, terminated.ExitCode, terminated.Message)
 					}
 				}
 			}
@@ -425,7 +430,7 @@ func (o *GetBuildLogsOptions) getProwBuildLog(kubeClient kubernetes.Interface, t
 
 func waitForContainerToStart(kubeClient kubernetes.Interface, ns string, pod *corev1.Pod, idx int) (*corev1.Pod, error) {
 	if pod.Status.Phase == corev1.PodFailed {
-		log.Warnf("pod %s has failed\n", pod.Name)
+		log.Logger().Warnf("pod %s has failed", pod.Name)
 		return pod, nil
 	}
 	if kube.HasContainerStarted(pod, idx) {
@@ -436,7 +441,7 @@ func waitForContainerToStart(kubeClient kubernetes.Interface, ns string, pod *co
 	if idx < len(containers) {
 		containerName = containers[idx].Name
 	}
-	log.Infof("waiting for pod %s container %s to start...\n", util.ColorInfo(pod.Name), util.ColorInfo(containerName))
+	log.Logger().Infof("waiting for pod %s container %s to start...", util.ColorInfo(pod.Name), util.ColorInfo(containerName))
 	for {
 		time.Sleep(time.Second)
 
@@ -451,12 +456,12 @@ func waitForContainerToStart(kubeClient kubernetes.Interface, ns string, pod *co
 }
 
 func (o *GetBuildLogsOptions) getPodLog(ns string, pod *corev1.Pod, container corev1.Container) error {
-	log.Infof("getting the log for pod %s and container %s\n", util.ColorInfo(pod.Name), util.ColorInfo(container.Name))
+	log.Logger().Infof("getting the log for pod %s and container %s", util.ColorInfo(pod.Name), util.ColorInfo(container.Name))
 	return o.TailLogs(ns, pod.Name, container.Name)
 }
 
 func (o *GetBuildLogsOptions) getStageLog(ns, build, stageName string, pod *corev1.Pod, container corev1.Container) error {
-	log.Infof("getting the log for build %s stage %s and container %s\n", util.ColorInfo(build), util.ColorInfo(stageName), util.ColorInfo(container.Name))
+	log.Logger().Infof("getting the log for build %s stage %s and container %s", util.ColorInfo(build), util.ColorInfo(stageName), util.ColorInfo(container.Name))
 	return o.TailLogs(ns, pod.Name, container.Name)
 }
 
@@ -468,7 +473,7 @@ func (o *GetBuildLogsOptions) loadBuilds(kubeClient kubernetes.Interface, ns str
 
 	pods, err := builds.GetBuildPods(kubeClient, ns)
 	if err != nil {
-		log.Warnf("Failed to query pods %s\n", err)
+		log.Logger().Warnf("Failed to query pods %s", err)
 		return names, defaultName, buildMap, pipelineMap, err
 	}
 
@@ -506,22 +511,41 @@ func (o *GetBuildLogsOptions) loadPipelines(kubeClient kubernetes.Interface, tek
 	buildMap := map[string]builds.BaseBuildInfo{}
 	pipelineMap := map[string]builds.BaseBuildInfo{}
 
-	prList, err := tektonClient.TektonV1alpha1().PipelineRuns(ns).List(metav1.ListOptions{})
+	labelSelectors := o.BuildFilter.LabelSelectorsForBuild()
+
+	listOptions := metav1.ListOptions{}
+	if len(labelSelectors) > 0 {
+		listOptions.LabelSelector = strings.Join(labelSelectors, ",")
+	}
+
+	prList, err := tektonClient.TektonV1alpha1().PipelineRuns(ns).List(listOptions)
 	if err != nil {
-		log.Warnf("Failed to query PipelineRuns %s\n", err)
+		log.Logger().Warnf("Failed to query PipelineRuns %s", err)
 		return names, defaultName, buildMap, pipelineMap, err
 	}
 
-	structures, err := jxClient.JenkinsV1().PipelineStructures(ns).List(metav1.ListOptions{})
+	structures, err := jxClient.JenkinsV1().PipelineStructures(ns).List(listOptions)
 	if err != nil {
-		log.Warnf("Failed to query PipelineStructures %s\n", err)
+		log.Logger().Warnf("Failed to query PipelineStructures %s", err)
 		return names, defaultName, buildMap, pipelineMap, err
+	}
+	// TODO: Remove this eventually - it's only here for structures created before we started applying labels to them.
+	if len(prList.Items) > len(structures.Items) && len(labelSelectors) != 0 {
+		structures, err = jxClient.JenkinsV1().PipelineStructures(ns).List(metav1.ListOptions{})
+		if err != nil {
+			log.Logger().Warnf("Failed to query PipelineStructures %s", err)
+			return names, defaultName, buildMap, pipelineMap, err
+		}
 	}
 
 	buildInfos := []*tekton.PipelineRunInfo{}
 
+	podLabelSelector := pipeline.GroupName + pipeline.PipelineRunLabelKey
+	if len(labelSelectors) > 0 {
+		podLabelSelector += "," + strings.Join(labelSelectors, ",")
+	}
 	podList, err := kubeClient.CoreV1().Pods(ns).List(metav1.ListOptions{
-		LabelSelector: pipeline.GroupName + pipeline.PipelineRunLabelKey,
+		LabelSelector: podLabelSelector,
 	})
 	if err != nil {
 		return names, defaultName, buildMap, pipelineMap, err
@@ -535,9 +559,7 @@ func (o *GetBuildLogsOptions) loadPipelines(kubeClient kubernetes.Interface, tek
 		}
 		pri, err := tekton.CreatePipelineRunInfo(pr.Name, podList, &ps, &pr)
 		if err != nil {
-			if o.Verbose {
-				log.Warnf("Error creating PipelineRunInfo for PipelineRun %s: %s\n", pr.Name, err)
-			}
+			log.Logger().Warnf("Error creating PipelineRunInfo for PipelineRun %s: %s", pr.Name, err)
 		}
 		if pri != nil && o.BuildFilter.BuildMatches(pri.ToBuildPodInfo()) {
 			buildInfos = append(buildInfos, pri)

@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/cloud"
 	"github.com/jenkins-x/jx/pkg/log"
 
@@ -106,7 +108,7 @@ func NewCmdCreateCluster(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd2
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -140,7 +142,7 @@ func createCreateClusterOptions(commonOpts *opts.CommonOptions, cloudProvider st
 
 func (o *CreateClusterOptions) initAndInstall(provider string) error {
 	if o.SkipInstallation {
-		log.Infof("%s cluster created. Skipping Jenkins X installation.\n", o.Provider)
+		log.Logger().Infof("%s cluster created. Skipping Jenkins X installation.", o.Provider)
 		return nil
 	}
 

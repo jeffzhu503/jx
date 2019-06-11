@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
@@ -74,7 +76,7 @@ func NewCmdEditDeployKind(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().BoolVarP(&options.Team, "team", "t", false, "Edits the team default")
@@ -98,7 +100,7 @@ func (o *EditDeployKindOptions) Run() error {
 			teamSettings := &env.Spec.TeamSettings
 			teamSettings.DeployKind = name
 
-			log.Infof("Setting the team deploy kind to: %s\n", util.ColorInfo(name))
+			log.Logger().Infof("Setting the team deploy kind to: %s", util.ColorInfo(name))
 			return nil
 		}
 		return o.ModifyDevEnvironment(callback)

@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/client/clientset/versioned"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -48,7 +50,7 @@ func NewCmdDeleteEnv(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	//addDeleteFlags(cmd, &options.CreateOptions)
@@ -114,7 +116,7 @@ func (o *DeleteEnvOptions) deleteEnviroment(jxClient versioned.Interface, ns str
 	if err != nil {
 		return err
 	}
-	log.Infof("Deleted environment %s\n", util.ColorInfo(name))
+	log.Logger().Infof("Deleted environment %s", util.ColorInfo(name))
 
 	env := envMap[name]
 	envNs := env.Spec.Namespace
@@ -129,7 +131,7 @@ func (o *DeleteEnvOptions) deleteEnviroment(jxClient versioned.Interface, ns str
 	if o.DeleteNamespace || !kind.IsPermanent() {
 		return client.CoreV1().Namespaces().Delete(envNs, &metav1.DeleteOptions{})
 	}
-	log.Infof("To delete the associated namespace %s for environment %s then please run this command\n", name, envNs)
-	log.Infof(util.ColorInfo("  kubectl delete namespace %s\n"), envNs)
+	log.Logger().Infof("To delete the associated namespace %s for environment %s then please run this command", name, envNs)
+	log.Logger().Infof(util.ColorInfo("  kubectl delete namespace %s"), envNs)
 	return nil
 }

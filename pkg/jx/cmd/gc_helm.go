@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/ghodss/yaml"
 
 	"github.com/spf13/cobra"
@@ -59,7 +61,7 @@ func NewCmdGCHelm(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().IntVarP(&options.RevisionHistoryLimit, "revision-history-limit", "", 10, "Minimum number of versions per release to keep")
@@ -83,32 +85,24 @@ func (o *GCHelmOptions) Run() error {
 	}
 	if len(cms.Items) == 0 {
 		// no configmaps found so lets return gracefully
-		if o.Verbose {
-			log.Info("no config maps found\n")
-		}
+		log.Logger().Debug("no config maps found")
 		return nil
 	}
 
 	releases := ExtractReleases(cms)
-	if o.Verbose {
-		log.Info(fmt.Sprintf("Found %d releases.\n", len(releases)))
-		log.Info(fmt.Sprintf("Releases: %v\n", releases))
-	}
+	log.Logger().Debug(fmt.Sprintf("Found %d releases.", len(releases)))
+	log.Logger().Debug(fmt.Sprintf("Releases: %v", releases))
 
 	for _, release := range releases {
-		if o.Verbose {
-			log.Info(fmt.Sprintf("Checking %s. ", release))
-		}
+		log.Logger().Debug(fmt.Sprintf("Checking %s. ", release))
 		versions := ExtractVersions(cms, release)
-		if o.Verbose {
-			log.Info(fmt.Sprintf("Found %d.\n", len(versions)))
-			log.Info(fmt.Sprintf("%v\n", versions))
-		}
+		log.Logger().Debug(fmt.Sprintf("Found %d.", len(versions)))
+		log.Logger().Debug(fmt.Sprintf("%v", versions))
 		to_delete := VersionsToDelete(versions, o.RevisionHistoryLimit)
 		if len(to_delete) > 0 {
 			if o.DryRun {
-				log.Info("Would delete:")
-				log.Infof("%v\n", to_delete)
+				log.Logger().Info("Would delete:")
+				log.Logger().Infof("%v", to_delete)
 			} else {
 				// Backup and delete
 				if o.NoBackup == false {
@@ -125,7 +119,7 @@ func (o *GCHelmOptions) Run() error {
 						if o.NoBackup == false {
 							// Create backup for ConfigMap about to be deleted
 							filename := o.OutDir + "/" + version + ".yaml"
-							log.Info(fmt.Sprintf("Backing up %v. ", filename))
+							log.Logger().Info(fmt.Sprintf("Backing up %v. ", filename))
 							y, err2 := yaml.Marshal(cm)
 							if err2 != nil {
 								// Failed to Marshall to YAML
@@ -137,7 +131,7 @@ func (o *GCHelmOptions) Run() error {
 							b.Write(y)
 							err4 := ioutil.WriteFile(filename, b.Bytes(), 0644)
 							if err4 == nil {
-								log.Info("Success. ")
+								log.Logger().Info("Success. ")
 							} else {
 								// Failed to write backup so abort
 								return err4
@@ -147,21 +141,19 @@ func (o *GCHelmOptions) Run() error {
 						var opts *metav1.DeleteOptions
 						err5 := kubeClient.CoreV1().ConfigMaps(kubeNamespace).Delete(version, opts)
 						if err5 == nil {
-							log.Info(fmt.Sprintf("ConfigMap %v deleted.\n", version))
+							log.Logger().Info(fmt.Sprintf("ConfigMap %v deleted.", version))
 						} else {
 							// Failed to delete
 							return err5
 						}
 					} else {
 						// Failed to find a ConfigMap that we know was in memory. Unlikely to occur.
-						log.Warn(fmt.Sprintf("Failed to find ConfigMap %s. \n", version))
+						log.Logger().Warn(fmt.Sprintf("Failed to find ConfigMap %s. ", version))
 					}
 				}
 			}
 		} else {
-			if o.Verbose {
-				log.Info("Nothing to do.")
-			}
+			log.Logger().Debug("Nothing to do.")
 		}
 	}
 	return nil

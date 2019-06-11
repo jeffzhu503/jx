@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/chats"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
@@ -50,7 +52,7 @@ func NewCmdGetChat(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Kind, "kind", "k", "", "Filters the chats by the kinds: "+strings.Join(chats.ChatKinds, ", "))
@@ -66,7 +68,7 @@ func (o *GetChatOptions) Run() error {
 	config := authConfigSvc.Config()
 
 	if len(config.Servers) == 0 {
-		log.Infof("No chat servers registered. To register a new chat servers use: %s\n", util.ColorInfo("jx create chat server"))
+		log.Logger().Infof("No chat servers registered. To register a new chat servers use: %s", util.ColorInfo("jx create chat server"))
 		return nil
 	}
 	filterKind := o.Kind

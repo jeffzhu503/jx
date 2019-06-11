@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/heptio/sonobuoy/pkg/plugin/aggregation"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
@@ -44,7 +46,7 @@ func NewCmdComplianceStatus(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -59,11 +61,11 @@ func (o *ComplianceStatusOptions) Run() error {
 	}
 	status, err := cc.GetStatus(complianceNamespace)
 	if err != nil {
-		log.Infof("No compliance status found. Use %s command to start the compliance tests.\n", util.ColorInfo("jx compliance run"))
-		log.Infof("You can watch the logs with %s command.\n", util.ColorInfo("jx compliance logs -f"))
+		log.Logger().Infof("No compliance status found. Use %s command to start the compliance tests.", util.ColorInfo("jx compliance run"))
+		log.Logger().Infof("You can watch the logs with %s command.", util.ColorInfo("jx compliance logs -f"))
 		return nil
 	}
-	log.Info(hummanReadableStatus(status.Status))
+	log.Logger().Info(hummanReadableStatus(status.Status))
 	return nil
 }
 

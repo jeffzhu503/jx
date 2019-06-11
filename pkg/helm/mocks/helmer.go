@@ -179,30 +179,34 @@ func (mock *MockHelmer) InstallChart(_param0 string, _param1 string, _param2 str
 	return ret0
 }
 
-func (mock *MockHelmer) IsRepoMissing(_param0 string) (bool, error) {
+func (mock *MockHelmer) IsRepoMissing(_param0 string) (bool, string, error) {
 	if mock == nil {
 		panic("mock must not be nil. Use myMock := NewMockHelmer().")
 	}
 	params := []pegomock.Param{_param0}
-	result := pegomock.GetGenericMockFrom(mock).Invoke("IsRepoMissing", params, []reflect.Type{reflect.TypeOf((*bool)(nil)).Elem(), reflect.TypeOf((*error)(nil)).Elem()})
+	result := pegomock.GetGenericMockFrom(mock).Invoke("IsRepoMissing", params, []reflect.Type{reflect.TypeOf((*bool)(nil)).Elem(), reflect.TypeOf((*string)(nil)).Elem(), reflect.TypeOf((*error)(nil)).Elem()})
 	var ret0 bool
-	var ret1 error
+	var ret1 string
+	var ret2 error
 	if len(result) != 0 {
 		if result[0] != nil {
 			ret0 = result[0].(bool)
 		}
 		if result[1] != nil {
-			ret1 = result[1].(error)
+			ret1 = result[1].(string)
+		}
+		if result[2] != nil {
+			ret2 = result[2].(error)
 		}
 	}
-	return ret0, ret1
+	return ret0, ret1, ret2
 }
 
-func (mock *MockHelmer) Lint() (string, error) {
+func (mock *MockHelmer) Lint(_param0 []string) (string, error) {
 	if mock == nil {
 		panic("mock must not be nil. Use myMock := NewMockHelmer().")
 	}
-	params := []pegomock.Param{}
+	params := []pegomock.Param{_param0}
 	result := pegomock.GetGenericMockFrom(mock).Invoke("Lint", params, []reflect.Type{reflect.TypeOf((*string)(nil)).Elem(), reflect.TypeOf((*error)(nil)).Elem()})
 	var ret0 string
 	var ret1 error
@@ -850,8 +854,8 @@ func (c *MockHelmer_IsRepoMissing_OngoingVerification) GetAllCapturedArguments()
 	return
 }
 
-func (verifier *VerifierMockHelmer) Lint() *MockHelmer_Lint_OngoingVerification {
-	params := []pegomock.Param{}
+func (verifier *VerifierMockHelmer) Lint(_param0 []string) *MockHelmer_Lint_OngoingVerification {
+	params := []pegomock.Param{_param0}
 	methodInvocations := pegomock.GetGenericMockFrom(verifier.mock).Verify(verifier.inOrderContext, verifier.invocationCountMatcher, "Lint", params, verifier.timeout)
 	return &MockHelmer_Lint_OngoingVerification{mock: verifier.mock, methodInvocations: methodInvocations}
 }
@@ -861,10 +865,20 @@ type MockHelmer_Lint_OngoingVerification struct {
 	methodInvocations []pegomock.MethodInvocation
 }
 
-func (c *MockHelmer_Lint_OngoingVerification) GetCapturedArguments() {
+func (c *MockHelmer_Lint_OngoingVerification) GetCapturedArguments() []string {
+	_param0 := c.GetAllCapturedArguments()
+	return _param0[len(_param0)-1]
 }
 
-func (c *MockHelmer_Lint_OngoingVerification) GetAllCapturedArguments() {
+func (c *MockHelmer_Lint_OngoingVerification) GetAllCapturedArguments() (_param0 [][]string) {
+	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
+	if len(params) > 0 {
+		_param0 = make([][]string, len(params[0]))
+		for u, param := range params[0] {
+			_param0[u] = param.([]string)
+		}
+	}
+	return
 }
 
 func (verifier *VerifierMockHelmer) ListReleases(_param0 string) *MockHelmer_ListReleases_OngoingVerification {

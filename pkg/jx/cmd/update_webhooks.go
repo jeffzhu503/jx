@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/gits"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -19,6 +21,7 @@ import (
 type UpdateWebhooksOptions struct {
 	*opts.CommonOptions
 	Org             string
+	User            string
 	Repo            string
 	ExactHookMatch  bool
 	PreviousHookUrl string
@@ -53,7 +56,7 @@ func NewCmdUpdateWebhooks(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -117,16 +120,25 @@ func (options *UpdateWebhooksOptions) Run() error {
 	if err != nil {
 		return errors.Wrap(err, "unable to determine git provider")
 	}
+	owner := GetOrgOrUserFromOptions(options)
+
+	if options.Verbose {
+		log.Logger().Infof("Updating webhooks for Owner %v and Repo %v", owner, options.Repo)
+	}
 
 	if options.Repo != "" {
 		options.updateRepoHook(git, options.Repo, webhookURL, isProwEnabled, hmacToken)
 	} else {
-		repositories, err := git.ListRepositories(options.Org)
+		if owner == "" {
+			return errors.Wrap(err, "unable to list repositories - no repo owner")
+		}
+
+		repositories, err := git.ListRepositories(owner)
 		if err != nil {
 			return errors.Wrap(err, "unable to list repositories")
 		}
 
-		log.Infof("Found %v repos\n", util.ColorInfo(len(repositories)))
+		log.Logger().Infof("Found %v repos", util.ColorInfo(len(repositories)))
 
 		for _, repo := range repositories {
 			options.updateRepoHook(git, repo.Name, webhookURL, isProwEnabled, hmacToken)
@@ -136,38 +148,55 @@ func (options *UpdateWebhooksOptions) Run() error {
 	return nil
 }
 
+// GetOrgOrUserFromOptions returns the Org if set,
+// if not set, returns the user if that is set
+// or "" if neither is set
+func GetOrgOrUserFromOptions(options *UpdateWebhooksOptions) string {
+	owner := options.Org
+	if owner == "" && options.Username != "" {
+		owner = options.Username
+	}
+	return owner
+}
+
 func (options *UpdateWebhooksOptions) updateRepoHook(git gits.GitProvider, repoName string, webhookURL string, isProwEnabled bool, hmacToken string) error {
-	log.Infof("Checking hooks for repository %s with user %s\n", util.ColorInfo(repoName), util.ColorInfo(git.UserAuth().Username))
+	log.Logger().Infof("Checking hooks for repository %s with user %s", util.ColorInfo(repoName), util.ColorInfo(git.UserAuth().Username))
 
 	webhooks, err := git.ListWebHooks(options.Org, repoName)
 	if err != nil {
 		return errors.Wrap(err, "unable to list webhooks")
 	}
 
+	webHookArgs := &gits.GitWebHookArguments{
+		Owner: options.Org,
+		Repo: &gits.GitRepository{
+			Name: repoName,
+		},
+		URL: webhookURL,
+	}
+	if isProwEnabled {
+		webHookArgs.Secret = hmacToken
+	}
 	if len(webhooks) > 0 {
 		// find matching hook
 		for _, webHook := range webhooks {
 			if options.matches(webhookURL, webHook) {
-				log.Infof("Found matching hook for url %s\n", util.ColorInfo(webHook.URL))
-
-				// update
-				webHookArgs := &gits.GitWebHookArguments{
-					ID:    webHook.ID,
-					Owner: options.Org,
-					Repo: &gits.GitRepository{
-						Name: repoName,
-					},
-					URL:         webhookURL,
-					ExistingURL: options.PreviousHookUrl,
-				}
-
-				if isProwEnabled {
-					webHookArgs.Secret = hmacToken
-				}
-
+				log.Logger().Infof("Found matching hook for url %s", util.ColorInfo(webHook.URL))
+				webHookArgs.ID = webHook.ID
+				webHookArgs.ExistingURL = options.PreviousHookUrl
 				if !options.DryRun {
-					git.UpdateWebHook(webHookArgs)
+					if err := git.UpdateWebHook(webHookArgs); err != nil {
+						return errors.Wrapf(err, "updating the webhook %q on repository '%s/%s'",
+							webhookURL, options.Org, repoName)
+					}
 				}
+			}
+		}
+	} else {
+		if !options.DryRun {
+			if err := git.CreateWebHook(webHookArgs); err != nil {
+				return errors.Wrapf(err, "creating the webhook %q on repository '%s/%s'",
+					webhookURL, options.Org, repoName)
 			}
 		}
 	}

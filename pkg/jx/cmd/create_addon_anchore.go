@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/helm"
 
 	"github.com/jenkins-x/jx/pkg/kube/services"
@@ -75,7 +77,7 @@ func NewCmdCreateAddonAnchore(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -105,7 +107,7 @@ func (o *CreateAddonAnchoreOptions) Run() error {
 		return err
 	}
 
-	log.Infof("found dev namespace %s\n", devNamespace)
+	log.Logger().Infof("found dev namespace %s", devNamespace)
 
 	values := []string{"globalConfig.users.admin.password=" + o.Password, "globalConfig.configDir=/anchore_service_dir"}
 	setValues := strings.Split(o.SetValues, ",")
@@ -122,7 +124,7 @@ func (o *CreateAddonAnchoreOptions) Run() error {
 		return fmt.Errorf("anchore deployment failed: %v", err)
 	}
 
-	log.Info("waiting for anchore deployment to be ready, this can take a few minutes\n")
+	log.Logger().Info("waiting for anchore deployment to be ready, this can take a few minutes")
 
 	err = kube.WaitForDeploymentToBeReady(client, anchoreDeploymentName, o.Namespace, 10*time.Minute)
 	if err != nil {

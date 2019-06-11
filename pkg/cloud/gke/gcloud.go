@@ -2,6 +2,7 @@ package gke
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,6 +34,136 @@ var (
 		"roles/storage.objectAdmin",
 		"roles/storage.objectCreator"}
 )
+
+// getManagedZoneName constructs and returns a managed zone name using the domain value
+func getManagedZoneName(domain string) string {
+
+	var managedZoneName string
+
+	if domain != "" {
+		managedZoneName = strings.Replace(domain, ".", "-", -1)
+		return fmt.Sprintf("%s-zone", managedZoneName)
+	}
+	return ""
+}
+
+// managedZoneExists checks for a given domain zone within the specified project
+func managedZoneExists(projectID string, domain string) (bool, error) {
+	args := []string{"dns",
+		"managed-zones",
+		fmt.Sprintf("--project=%s", projectID),
+		"list",
+		fmt.Sprintf("--filter=%s.", domain),
+		"--format=json",
+	}
+
+	cmd := util.Command{
+		Name: "gcloud",
+		Args: args,
+	}
+
+	output, err := cmd.RunWithoutRetry()
+	if err != nil {
+		return true, errors.Wrap(err, "executing gcloud dns managed-zones list command ")
+	}
+
+	type managedZone struct {
+		Name string `json:"name"`
+	}
+
+	var managedZones []managedZone
+
+	err = yaml.Unmarshal([]byte(output), &managedZones)
+	if err != nil {
+		return true, errors.Wrap(err, "unmarshalling gcloud response")
+	}
+
+	if len(managedZones) > 0 {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+// CreateManagedZone creates a managed zone for the given domain in the specified project
+func CreateManagedZone(projectID string, domain string) error {
+	zoneExists, err := managedZoneExists(projectID, domain)
+	if err != nil {
+		return errors.Wrap(err, "unable to determine whether managed zone exists")
+	}
+	if !zoneExists {
+		log.Logger().Infof("Managed Zone doesn't exist for %s domain, creating...", domain)
+		managedZoneName := getManagedZoneName(domain)
+		args := []string{"dns",
+			"managed-zones",
+			fmt.Sprintf("--project=%s", projectID),
+			"create",
+			managedZoneName,
+			"--dns-name",
+			fmt.Sprintf("%s.", domain),
+			"--description=managed-zone utilised by jx",
+		}
+
+		cmd := util.Command{
+			Name: "gcloud",
+			Args: args,
+		}
+
+		_, err := cmd.RunWithoutRetry()
+		if err != nil {
+			return errors.Wrap(err, "executing gcloud dns managed-zones list command ")
+		}
+	} else {
+		log.Logger().Infof("Managed Zone exists for %s domain.", domain)
+	}
+	return nil
+}
+
+// GetManagedZoneNameServers retrieves a list of name servers associated with a zone
+func GetManagedZoneNameServers(projectID string, domain string) (string, []string, error) {
+	var managedZoneName, nameServers = "", []string{}
+	zoneExists, err := managedZoneExists(projectID, domain)
+	if err != nil {
+		return "", []string{}, errors.Wrap(err, "unable to determine whether managed zone exists")
+	}
+	if zoneExists {
+		log.Logger().Infof("Getting nameservers for %s domain", domain)
+		managedZoneName = getManagedZoneName(domain)
+		args := []string{"dns",
+			"managed-zones",
+			fmt.Sprintf("--project=%s", projectID),
+			"describe",
+			managedZoneName,
+			"--format=json",
+		}
+
+		cmd := util.Command{
+			Name: "gcloud",
+			Args: args,
+		}
+
+		type mz struct {
+			Name        string   `json:"name"`
+			NameServers []string `json:"nameServers"`
+		}
+
+		var managedZone mz
+
+		output, err := cmd.RunWithoutRetry()
+		if err != nil {
+			return "", []string{}, errors.Wrap(err, "executing gcloud dns managed-zones list command ")
+		}
+
+		json.Unmarshal([]byte(output), &managedZone)
+		if err != nil {
+			return "", []string{}, errors.Wrap(err, "unmarshalling gcloud response when returning managed-zone nameservers")
+		}
+		nameServers = managedZone.NameServers
+	} else {
+		log.Logger().Infof("Managed Zone doesn't exist for %s domain.", domain)
+	}
+	return managedZoneName, nameServers, nil
+}
 
 // ClusterZone retrives the zone of GKE cluster description
 func ClusterZone(cluster string) (string, error) {
@@ -69,6 +200,23 @@ func parseClusterZone(clusterInfo string) (string, error) {
 	return ci.Zone, nil
 }
 
+type nodeConfig struct {
+	OauthScopes []string `json:"oauthScopes"`
+}
+
+func parseScopes(clusterInfo string) ([]string, error) {
+
+	ci := struct {
+		NodeConfig nodeConfig `json:"nodeConfig"`
+	}{}
+
+	err := yaml.Unmarshal([]byte(clusterInfo), &ci)
+	if err != nil {
+		return nil, errors.Wrap(err, "extracting cluster oauthScopes from cluster info")
+	}
+	return ci.NodeConfig.OauthScopes, nil
+}
+
 // BucketExists checks if a Google Storage bucket exists
 func BucketExists(projectID string, bucketName string) (bool, error) {
 	fullBucketName := fmt.Sprintf("gs://%s", bucketName)
@@ -85,7 +233,7 @@ func BucketExists(projectID string, bucketName string) (bool, error) {
 	}
 	output, err := cmd.RunWithoutRetry()
 	if err != nil {
-		log.Infof("Error checking bucket exists: %s, %s\n", output, err)
+		log.Logger().Infof("Error checking bucket exists: %s, %s", output, err)
 		return false, err
 	}
 	return strings.Contains(output, fullBucketName), nil
@@ -109,7 +257,7 @@ func CreateBucket(projectID string, bucketName string, location string) error {
 	}
 	output, err := cmd.RunWithoutRetry()
 	if err != nil {
-		log.Infof("Error creating bucket: %s, %s\n", output, err)
+		log.Logger().Infof("Error creating bucket: %s, %s", output, err)
 		return err
 	}
 	return nil
@@ -210,7 +358,7 @@ func GetOrCreateServiceAccount(serviceAccount string, projectID string, clusterC
 
 	found := FindServiceAccount(serviceAccount, projectID)
 	if !found {
-		log.Infof("Unable to find service account %s, checking if we have enough permission to create\n", util.ColorInfo(serviceAccount))
+		log.Logger().Infof("Unable to find service account %s, checking if we have enough permission to create", util.ColorInfo(serviceAccount))
 
 		// if it doesn't check to see if we have permissions to create (assign roles) to a service account
 		hasPerm, err := CheckPermission("resourcemanager.projects.setIamPolicy", projectID)
@@ -223,13 +371,15 @@ func GetOrCreateServiceAccount(serviceAccount string, projectID string, clusterC
 		}
 
 		// create service
-		log.Infof("Creating service account %s\n", util.ColorInfo(serviceAccount))
+		log.Logger().Infof("Creating service account %s", util.ColorInfo(serviceAccount))
 		args := []string{"iam",
 			"service-accounts",
 			"create",
 			serviceAccount,
 			"--project",
-			projectID}
+			projectID,
+			"--display-name",
+			serviceAccount}
 
 		cmd := util.Command{
 			Name: "gcloud",
@@ -242,7 +392,7 @@ func GetOrCreateServiceAccount(serviceAccount string, projectID string, clusterC
 
 		// assign roles to service account
 		for _, role := range roles {
-			log.Infof("Assigning role %s\n", role)
+			log.Logger().Infof("Assigning role %s", role)
 			args = []string{"projects",
 				"add-iam-policy-binding",
 				projectID,
@@ -257,24 +407,24 @@ func GetOrCreateServiceAccount(serviceAccount string, projectID string, clusterC
 				Name: "gcloud",
 				Args: args,
 			}
-			_, err := cmd.RunWithoutRetry()
+			_, err := cmd.Run()
 			if err != nil {
 				return "", err
 			}
 		}
 
 	} else {
-		log.Info("Service Account exists\n")
+		log.Logger().Info("Service Account exists")
 	}
 
 	os.MkdirAll(clusterConfigDir, os.ModePerm)
 	keyPath := filepath.Join(clusterConfigDir, fmt.Sprintf("%s.key.json", serviceAccount))
 
 	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-		log.Info("Downloading service account key\n")
+		log.Logger().Info("Downloading service account key")
 		err := CreateServiceAccountKey(serviceAccount, projectID, keyPath)
 		if err != nil {
-			log.Infof("Exceeds the maximum number of keys on service account %s\n",
+			log.Logger().Infof("Exceeds the maximum number of keys on service account %s",
 				util.ColorInfo(serviceAccount))
 			err := CleanupServiceAccountKeys(serviceAccount, projectID)
 			if err != nil {
@@ -286,7 +436,7 @@ func GetOrCreateServiceAccount(serviceAccount string, projectID string, clusterC
 			}
 		}
 	} else {
-		log.Info("Key already exists")
+		log.Logger().Info("Key already exists")
 	}
 
 	return keyPath, nil
@@ -379,15 +529,15 @@ func CleanupServiceAccountKeys(serviceAccount string, projectID string) error {
 		return errors.Wrap(err, "retrieving the service account keys")
 	}
 
-	log.Infof("Cleaning up the keys of the service account %s\n", util.ColorInfo(serviceAccount))
+	log.Logger().Infof("Cleaning up the keys of the service account %s", util.ColorInfo(serviceAccount))
 
 	for _, key := range keys {
 		err := DeleteServiceAccountKey(serviceAccount, projectID, key)
 		if err != nil {
-			log.Infof("Cannot delete the key %s from service account %s: %v\n",
+			log.Logger().Infof("Cannot delete the key %s from service account %s: %v",
 				util.ColorWarning(key), util.ColorInfo(serviceAccount), err)
 		} else {
-			log.Infof("Key %s was removed form service account %s\n",
+			log.Logger().Infof("Key %s was removed form service account %s",
 				util.ColorInfo(key), util.ColorInfo(serviceAccount))
 		}
 	}
@@ -402,7 +552,7 @@ func DeleteServiceAccount(serviceAccount string, projectID string, roles []strin
 	}
 	// remove roles to service account
 	for _, role := range roles {
-		log.Infof("Removing role %s\n", role)
+		log.Logger().Infof("Removing role %s", role)
 		args := []string{"projects",
 			"remove-iam-policy-binding",
 			projectID,
@@ -490,7 +640,7 @@ func EnableAPIs(projectID string, apis ...string) error {
 	}
 
 	if len(toEnableArray) == 0 {
-		log.Infof("No apis to enable\n")
+		log.Logger().Infof("No apis need to be enable as they are already enabled: %s", util.ColorInfo(strings.Join(apis, " ")))
 		return nil
 	}
 
@@ -502,7 +652,7 @@ func EnableAPIs(projectID string, apis ...string) error {
 		args = append(args, projectID)
 	}
 
-	log.Infof("Lets ensure we have %s enabled on your project via: %s\n", toEnableArray, util.ColorInfo("gcloud "+strings.Join(args, " ")))
+	log.Logger().Infof("Lets ensure we have %s enabled on your project via: %s", toEnableArray, util.ColorInfo("gcloud "+strings.Join(args, " ")))
 
 	cmd := util.Command{
 		Name: "gcloud",
@@ -519,7 +669,7 @@ func EnableAPIs(projectID string, apis ...string) error {
 // browser when the skipLogin flag is active
 func Login(serviceAccountKeyPath string, skipLogin bool) error {
 	if serviceAccountKeyPath != "" {
-		log.Infof("Activating service account %s\n", util.ColorInfo(serviceAccountKeyPath))
+		log.Logger().Infof("Activating service account %s", util.ColorInfo(serviceAccountKeyPath))
 
 		if _, err := os.Stat(serviceAccountKeyPath); os.IsNotExist(err) {
 			return errors.New("Unable to locate service account " + serviceAccountKeyPath)
@@ -536,7 +686,7 @@ func Login(serviceAccountKeyPath string, skipLogin bool) error {
 
 		// GCP IAM changes can take up to 80 seconds to propagate
 		retry(10, 10*time.Second, func() error {
-			log.Infof("Checking for readiness...\n")
+			log.Logger().Infof("Checking for readiness...")
 
 			projects, err := GetGoogleProjects()
 			if err != nil {
@@ -713,4 +863,35 @@ func IsKmsKeyAvailable(keyName string, keyringName string, projectID string) boo
 		return false
 	}
 	return true
+}
+
+// IsGCSWriteRoleEnabled will check if the devstorage.full_control scope is enabled in the cluster in order to use GCS
+func IsGCSWriteRoleEnabled(cluster string, zone string) (bool, error) {
+	args := []string{"container",
+		"clusters",
+		"describe",
+		cluster,
+		"--zone",
+		zone}
+
+	cmd := util.Command{
+		Name: "gcloud",
+		Args: args,
+	}
+	output, err := cmd.RunWithoutRetry()
+	if err != nil {
+		return false, err
+	}
+
+	oauthScopes, err := parseScopes(output)
+	if err != nil {
+		return false, err
+	}
+
+	for _, s := range oauthScopes {
+		if strings.Contains(s, "devstorage.full_control") {
+			return true, nil
+		}
+	}
+	return false, nil
 }

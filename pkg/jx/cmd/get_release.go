@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -50,7 +52,7 @@ func NewCmdGetRelease(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Filter, "filter", "f", "", "Filter the releases with the given text")
@@ -79,8 +81,8 @@ func (o *GetReleaseOptions) Run() error {
 		if o.Filter != "" {
 			suffix = fmt.Sprintf(" for filter: %s", util.ColorInfo(o.Filter))
 		}
-		log.Infof("No Releases found in namespace %s%s.\n", util.ColorInfo(ns), suffix)
-		log.Infof("To create a release try merging code to a master branch to trigger a pipeline or try: %s\n", util.ColorInfo("jx start build"))
+		log.Logger().Infof("No Releases found in namespace %s%s.", util.ColorInfo(ns), suffix)
+		log.Logger().Infof("To create a release try merging code to a master branch to trigger a pipeline or try: %s", util.ColorInfo("jx start build"))
 		return nil
 	}
 	table := o.CreateTable()

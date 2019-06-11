@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/spf13/cobra"
 
 	"fmt"
@@ -58,7 +59,7 @@ func NewCmdGetCVE(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -89,7 +90,7 @@ func (o *GetCVEOptions) Run() error {
 
 	externalURL, err := o.EnsureAddonServiceAvailable(kube.AddonServices[defaultAnchoreName])
 	if err != nil {
-		log.Warnf("no CVE provider service found, are you in your teams dev environment?  Type `jx env` to switch.\n")
+		log.Logger().Warnf("no CVE provider service found, are you in your teams dev environment?  Type `jx env` to switch.")
 		return fmt.Errorf("if no CVE provider running, try running `jx create addon anchore` in your teams dev environment: %v", err)
 	}
 

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"runtime"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/spf13/cobra"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -65,7 +67,7 @@ func NewCmdCreateLile(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.OutDir, optionOutputDir, "o", "", "Relative directory to output the project to. Defaults to current directory")
@@ -77,7 +79,7 @@ func NewCmdCreateLile(commonOpts *opts.CommonOptions) *cobra.Command {
 func (o CreateLileOptions) checkLileInstalled() error {
 	_, err := o.GetCommandOutput("", "lile", "help")
 	if err != nil {
-		log.Info("Installing Lile's dependencies...")
+		log.Logger().Info("Installing Lile's dependencies...")
 		// lets install lile
 		err = o.InstallBrewIfRequired()
 		if err != nil {
@@ -90,10 +92,10 @@ func (o CreateLileOptions) checkLileInstalled() error {
 			}
 		}
 
-		log.Info("Downloading and building Lile - this can take a while...")
+		log.Logger().Info("Downloading and building Lile - this can take a while...")
 		err = o.RunCommand("go", "get", "-u", "github.com/lileio/lile/...")
 		if err == nil {
-			log.Info("Installed Lile and its dependencies!")
+			log.Logger().Info("Installed Lile and its dependencies!")
 		}
 	}
 	return err
@@ -138,7 +140,7 @@ func (o *CreateLileOptions) Run() error {
 		return err
 	}
 
-	log.Infof("Created Lile project at %s\n\n", util.ColorInfo(dir))
+	log.Logger().Infof("Created Lile project at %s\n", util.ColorInfo(dir))
 
 	return o.ImportCreatedProject(dir)
 }

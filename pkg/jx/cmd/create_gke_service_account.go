@@ -4,13 +4,15 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	survey "gopkg.in/AlecAivazis/survey.v1"
+
 	"github.com/jenkins-x/jx/pkg/cloud/gke"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
-	"gopkg.in/AlecAivazis/survey.v1"
 )
 
 type CreateGkeServiceAccountFlags struct {
@@ -50,7 +52,7 @@ func NewCmdCreateGkeServiceAccount(commonOpts *opts.CommonOptions) *cobra.Comman
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -109,7 +111,7 @@ func (o *CreateGkeServiceAccountOptions) Run() error {
 		return err
 	}
 
-	log.Infof("Created service account key %s\n", util.ColorInfo(path))
+	log.Logger().Infof("Created service account key %s", util.ColorInfo(path))
 
 	return nil
 }
@@ -142,7 +144,7 @@ func (o *CreateGkeServiceAccountOptions) getGoogleProjectId() (string, error) {
 		}
 	} else if len(existingProjects) == 1 {
 		projectId = existingProjects[0]
-		log.Infof("Using the only Google Cloud Project %s to create the cluster\n", util.ColorInfo(projectId))
+		log.Logger().Infof("Using the only Google Cloud Project %s to create the cluster", util.ColorInfo(projectId))
 	} else {
 		prompts := &survey.Select{
 			Message: "Google Cloud Project:",

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/users"
 
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
@@ -55,7 +57,7 @@ func NewCmdCreateUser(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -123,8 +125,8 @@ func (o *CreateUserOptions) Run() error {
 	if err != nil {
 		return fmt.Errorf("Failed to create User %s: %s", login, err)
 	}
-	log.Infof("Created User: %s\n", util.ColorInfo(login))
-	log.Infof("You can configure the roles for the user via: %s\n", util.ColorInfo(fmt.Sprintf("jx edit userrole %s", login)))
+	log.Logger().Infof("Created User: %s", util.ColorInfo(login))
+	log.Logger().Infof("You can configure the roles for the user via: %s", util.ColorInfo(fmt.Sprintf("jx edit userrole %s", login)))
 	return nil
 
 }

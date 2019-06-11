@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/extensions"
 
@@ -65,7 +67,7 @@ func NewCmdDeleteExtension(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 		SuggestFor: []string{"remove", "rm"},
 	}
@@ -116,7 +118,7 @@ func (o *DeleteExtensionOptions) Run() error {
 	}
 
 	if len(exts.Items) == 0 {
-		return fmt.Errorf("There are no Extensions installed for team %s. You install them using: %s\n", util.ColorInfo(ns), util.ColorInfo("jx upgrade extensions"))
+		return fmt.Errorf("There are no Extensions installed for team %s. You install them using: %s", util.ColorInfo(ns), util.ColorInfo("jx upgrade extensions"))
 	}
 
 	names := make([]string, 0)
@@ -176,19 +178,19 @@ func (o *DeleteExtensionOptions) Run() error {
 
 			e, _, err := extensions.ToExecutable(&ext.Spec, config.Parameters, ns, extensionsClient)
 			if err != nil {
-				log.Warnf("Error %v getting executable version of %s\n", err, ext.Spec.FullyQualifiedName())
+				log.Logger().Warnf("Error %v getting executable version of %s", err, ext.Spec.FullyQualifiedName())
 			}
-			err = e.Execute(o.Verbose)
+			err = e.Execute()
 			if err != nil {
-				log.Warnf("Error %v running OnUninstall hook for %s\n", err, ext.Spec.FullyQualifiedName())
+				log.Logger().Warnf("Error %v running OnUninstall hook for %s", err, ext.Spec.FullyQualifiedName())
 			}
 		}
 		err := extensionsClient.Delete(ext.ObjectMeta.Name, &metav1.DeleteOptions{})
 		if err != nil {
-			log.Warnf("Error %v deleting CRD for %s\n", err, ext.Spec.FullyQualifiedName())
+			log.Logger().Warnf("Error %v deleting CRD for %s", err, ext.Spec.FullyQualifiedName())
 		}
 		deletedExtensions = append(deletedExtensions, ext.Spec.FullyQualifiedName())
 	}
-	log.Infof("Deleted Extensions %s\n", util.ColorInfo(strings.Join(deletedExtensions, ", ")))
+	log.Logger().Infof("Deleted Extensions %s", util.ColorInfo(strings.Join(deletedExtensions, ", ")))
 	return nil
 }

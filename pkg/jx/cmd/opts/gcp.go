@@ -53,7 +53,7 @@ func (o *CommonOptions) GetGoogleProjectId() (string, error) {
 		}
 	} else if len(existingProjects) == 1 {
 		projectId = existingProjects[0]
-		log.Infof("Using the only Google Cloud Project %s to create the cluster\n", util.ColorInfo(projectId))
+		log.Logger().Infof("Using the only Google Cloud Project %s to create the cluster", util.ColorInfo(projectId))
 	} else {
 		prompts := &survey.Select{
 			Message: "Google Cloud Project:",
@@ -80,12 +80,20 @@ func (o *CommonOptions) GetGoogleProjectId() (string, error) {
 
 // GetGoogleZone returns the GCP zone
 func (o *CommonOptions) GetGoogleZone(projectId string) (string, error) {
-	return o.GetGoogleZoneWithDefault(projectId, "")
+	configuredZone, err := o.GetCommandOutput("", "gcloud", "config", "get-value", "compute/zone")
+	if err != nil {
+		return "", errors.Wrap(err, "getting google zone")
+	}
+	return o.GetGoogleZoneWithDefault(projectId, configuredZone)
 }
 
 // GetGoogleRegion returns the GCP region
 func (o *CommonOptions) GetGoogleRegion(projectId string) (string, error) {
-	return o.GetGoogleRegionWithDefault(projectId, "")
+	configuredRegion, err := o.GetCommandOutput("", "gcloud", "config", "get-value", "compute/region")
+	if err != nil {
+		return "", errors.Wrap(err, "getting google region")
+	}
+	return o.GetGoogleRegionWithDefault(projectId, configuredRegion)
 }
 
 // GetGoogleZoneWithDefault returns the GCP zone, if not zone is found returns the default zone

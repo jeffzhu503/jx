@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -43,7 +44,7 @@ func NewCmdGetHelmBin(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -57,7 +58,7 @@ func (o *GetHelmBinOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Your team uses the helm binary: %s\n", util.ColorInfo(helm))
-	log.Infof("To change this value use: %s\n", util.ColorInfo("jx edit helmbin helm3"))
+	log.Logger().Infof("Your team uses the helm binary: %s", util.ColorInfo(helm))
+	log.Logger().Infof("To change this value use: %s", util.ColorInfo("jx edit helmbin helm3"))
 	return nil
 }

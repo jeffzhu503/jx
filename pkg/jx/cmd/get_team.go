@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -48,7 +50,7 @@ func NewCmdGetTeam(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().BoolVarP(&options.Pending, "pending", "p", false, "Display only pending Teams which are not yet provisioned yet")
@@ -71,7 +73,7 @@ func (o *GetTeamOptions) Run() error {
 		return err
 	}
 	if len(teams) == 0 {
-		log.Info(`
+		log.Logger().Info(`
 You do not belong to any teams.
 Have you installed Jenkins X yet to create a team?
 See https://jenkins-x.io/getting-started/\n for more detail
@@ -105,7 +107,7 @@ func (o *GetTeamOptions) getPendingTeams() error {
 	}
 
 	if len(names) == 0 {
-		log.Info(`
+		log.Logger().Info(`
 There are no pending Teams yet. Try create one via: jx create team --pending
 `)
 		return nil

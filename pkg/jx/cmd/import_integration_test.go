@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/cmd_test_helpers"
+
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -30,27 +32,25 @@ import (
 )
 
 const (
-	gitSuffix                      = "_with_git"
-	mavenKeepOldJenkinsfile        = "maven_keep_old_jenkinsfile"
-	mavenKeepOldJenkinsfilewithGit = mavenKeepOldJenkinsfile + gitSuffix
-	mavenOldJenkinsfile            = "maven_old_jenkinsfile"
-	mavenOldJenkinsfilewithGit     = mavenOldJenkinsfile + gitSuffix
-	mavenCamel                     = "maven_camel"
-	mavenSpringBoot                = "maven_springboot"
-	probePrefix                    = "probePath:"
+	gitSuffix               = "_with_git"
+	mavenKeepOldJenkinsfile = "maven_keep_old_jenkinsfile"
+	mavenOldJenkinsfile     = "maven_old_jenkinsfile"
+	mavenCamel              = "maven_camel"
+	mavenSpringBoot         = "maven_springboot"
+	probePrefix             = "probePath:"
 )
 
 func TestImportProjects(t *testing.T) {
-	originalJxHome, tempJxHome, err := cmd.CreateTestJxHomeDir()
+	originalJxHome, tempJxHome, err := cmd_test_helpers.CreateTestJxHomeDir()
 	assert.NoError(t, err)
 	defer func() {
-		err := cmd.CleanupTestJxHomeDir(originalJxHome, tempJxHome)
+		err := cmd_test_helpers.CleanupTestJxHomeDir(originalJxHome, tempJxHome)
 		assert.NoError(t, err)
 	}()
-	originalKubeCfg, tempKubeCfg, err := cmd.CreateTestKubeConfigDir()
+	originalKubeCfg, tempKubeCfg, err := cmd_test_helpers.CreateTestKubeConfigDir()
 	assert.NoError(t, err)
 	defer func() {
-		err := cmd.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
+		err := cmd_test_helpers.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
 		assert.NoError(t, err)
 	}()
 
@@ -75,16 +75,16 @@ func TestImportProjects(t *testing.T) {
 }
 
 func TestImportProjectNextGenPipeline(t *testing.T) {
-	originalJxHome, tempJxHome, err := cmd.CreateTestJxHomeDir()
+	originalJxHome, tempJxHome, err := cmd_test_helpers.CreateTestJxHomeDir()
 	assert.NoError(t, err)
 	defer func() {
-		err := cmd.CleanupTestJxHomeDir(originalJxHome, tempJxHome)
+		err := cmd_test_helpers.CleanupTestJxHomeDir(originalJxHome, tempJxHome)
 		assert.NoError(t, err)
 	}()
-	originalKubeCfg, tempKubeCfg, err := cmd.CreateTestKubeConfigDir()
+	originalKubeCfg, tempKubeCfg, err := cmd_test_helpers.CreateTestKubeConfigDir()
 	assert.NoError(t, err)
 	defer func() {
-		err := cmd.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
+		err := cmd_test_helpers.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
 		assert.NoError(t, err)
 	}()
 
@@ -121,7 +121,7 @@ func testImportProject(t *testing.T, tempDir string, testcase string, srcDir str
 		gitDir := filepath.Join(testDir, ".gitdir")
 		dotGitExists, gitErr := util.FileExists(gitDir)
 		if gitErr != nil {
-			log.Warnf("Git source directory %s does not exist: %s", gitDir, gitErr)
+			log.Logger().Warnf("Git source directory %s does not exist: %s", gitDir, gitErr)
 		} else if dotGitExists {
 			dotGitDir := filepath.Join(testDir, ".git")
 			util.RenameDir(gitDir, dotGitDir, true)
@@ -171,7 +171,7 @@ func assertImport(t *testing.T, testDir string, testcase string, withRename bool
 	k8sObjects := []runtime.Object{}
 	jxObjects := []runtime.Object{}
 	helmer := helm.NewHelmCLI("helm", helm.V2, dirName, true)
-	cmd.ConfigureTestOptionsWithResources(o.CommonOptions, k8sObjects, jxObjects, gits.NewGitCLI(), nil, helmer, resources_test.NewMockInstaller())
+	cmd_test_helpers.ConfigureTestOptionsWithResources(o.CommonOptions, k8sObjects, jxObjects, gits.NewGitCLI(), nil, helmer, resources_test.NewMockInstaller())
 	if o.Out == nil {
 		o.Out = tests.Output()
 	}
@@ -181,7 +181,6 @@ func assertImport(t *testing.T, testDir string, testcase string, withRename bool
 	o.Dir = testDir
 	o.DryRun = true
 	o.DisableMaven = true
-	o.LogLevel = "warn"
 	o.UseDefaultGit = true
 
 	if dirName == "maven-camel" {

@@ -13,6 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/step/create"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/step/git"
+
 	"github.com/jenkins-x/jx/pkg/gits"
 	"github.com/jenkins-x/jx/pkg/jenkinsfile"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -50,13 +54,14 @@ type ControllerEnvironmentOptions struct {
 	GitServerURL          string
 	GitOwner              string
 	GitRepo               string
+	GitKind               string
 	SourceURL             string
 	WebHookURL            string
 	Branch                string
 	PushRef               string
 	Labels                map[string]string
 
-	StepCreateTaskOptions StepCreateTaskOptions
+	StepCreateTaskOptions create.StepCreateTaskOptions
 	secret                []byte
 }
 
@@ -83,7 +88,7 @@ func NewCmdControllerEnvironment(commonOpts *opts.CommonOptions) *cobra.Command 
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -94,9 +99,10 @@ func NewCmdControllerEnvironment(commonOpts *opts.CommonOptions) *cobra.Command 
 		"The path to listen on for requests to trigger a pipeline run.")
 	cmd.Flags().BoolVarP(&options.NoGitCredeentialsInit, "no-git-init", "", false, "Disables checking we have setup git credentials on startup")
 	cmd.Flags().BoolVarP(&options.RequireHeaders, "require-headers", "", true, "If enabled we reject webhooks which do not have the github headers: 'X-GitHub-Event' and 'X-GitHub-Delivery'")
-	cmd.Flags().BoolVarP(&options.NoGitCredeentialsInit, "no-register-webhook", "", false, "Disables checking to register the webhook on startup")
+	cmd.Flags().BoolVarP(&options.NoRegisterWebHook, "no-register-webhook", "", false, "Disables checking to register the webhook on startup")
 	cmd.Flags().StringVarP(&options.SourceURL, "source-url", "s", "", "The source URL of the environment git repository")
 	cmd.Flags().StringVarP(&options.GitServerURL, "git-server-url", "", "", "The git server URL. If not specified defaults to $GIT_SERVER_URL")
+	cmd.Flags().StringVarP(&options.GitKind, "git-kind", "", "", "The kind of git repository. Should be one of: "+strings.Join(gits.KindGits, ", ")+". If not specified defaults to $GIT_KIND")
 	cmd.Flags().StringVarP(&options.GitOwner, "owner", "o", "", "The git repository owner. If not specified defaults to $OWNER")
 	cmd.Flags().StringVarP(&options.GitRepo, "repo", "", "", "The git repository name. If not specified defaults to $REPO")
 	cmd.Flags().StringVarP(&options.WebHookURL, "webhook-url", "w", "", "The external WebHook URL of this controller to register with the git provider. If not specified defaults to $WEBHOOK_URL")
@@ -117,7 +123,7 @@ func (o *ControllerEnvironmentOptions) Run() error {
 		return util.MissingOption("path")
 	}
 
-	log.Infof("using require GitHub headers: %s\n", strconv.FormatBool(o.RequireHeaders))
+	log.Logger().Infof("using require GitHub headers: %s", strconv.FormatBool(o.RequireHeaders))
 
 	// lets default some values from environment variables
 	if o.StepCreateTaskOptions.ProjectID == "" {
@@ -158,6 +164,12 @@ func (o *ControllerEnvironmentOptions) Run() error {
 			return util.MissingOption("git-server-url")
 		}
 	}
+	if o.GitKind == "" {
+		o.GitKind = os.Getenv("GIT_KIND")
+		if o.GitKind == "" {
+			log.Logger().Warnf("No $GIT_KIND defined or --git-kind supplied to assuming GitHub.com environment git repository")
+		}
+	}
 	if o.GitOwner == "" {
 		o.GitOwner = os.Getenv("OWNER")
 		if o.GitOwner == "" {
@@ -189,7 +201,7 @@ func (o *ControllerEnvironmentOptions) Run() error {
 	if o.SourceURL == "" {
 		o.SourceURL = util.UrlJoin(o.GitServerURL, o.GitOwner, o.GitRepo)
 	}
-	log.Infof("using environment source directory %s and external webhook URL: %s\n", util.ColorInfo(o.SourceURL), util.ColorInfo(o.WebHookURL))
+	log.Logger().Infof("using environment source directory %s and external webhook URL: %s", util.ColorInfo(o.SourceURL), util.ColorInfo(o.WebHookURL))
 	o.secret, err = o.loadOrCreateHmacSecret()
 	if err != nil {
 		return errors.Wrapf(err, "loading hmac secret")
@@ -222,19 +234,19 @@ func (o *ControllerEnvironmentOptions) Run() error {
 	}
 	mux.Handle(o.Path, http.HandlerFunc(o.handleWebHookRequests))
 
-	log.Infof("Environment Controller is now listening on %s for WebHooks from the source repository %s to trigger promotions\n", util.ColorInfo(util.UrlJoin(o.WebHookURL, o.Path)), util.ColorInfo(o.SourceURL))
+	log.Logger().Infof("Environment Controller is now listening on %s for WebHooks from the source repository %s to trigger promotions", util.ColorInfo(util.UrlJoin(o.WebHookURL, o.Path)), util.ColorInfo(o.SourceURL))
 	return http.ListenAndServe(":"+strconv.Itoa(o.Port), mux)
 }
 
 // health returns either HTTP 204 if the service is healthy, otherwise nothing ('cos it's dead).
 func (o *ControllerEnvironmentOptions) health(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Health check")
+	log.Logger().Debug("Health check")
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // ready returns either HTTP 204 if the service is ready to serve requests, otherwise HTTP 503.
 func (o *ControllerEnvironmentOptions) ready(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Ready check")
+	log.Logger().Debug("Ready check")
 	if o.isReady() {
 		w.WriteHeader(http.StatusNoContent)
 	} else {
@@ -244,7 +256,7 @@ func (o *ControllerEnvironmentOptions) ready(w http.ResponseWriter, r *http.Requ
 
 // getIndex returns a simple home page
 func (o *ControllerEnvironmentOptions) getIndex(w http.ResponseWriter, r *http.Request) {
-	log.Debug("GET index")
+	log.Logger().Debug("GET index")
 	w.Write([]byte(helloMessage))
 }
 
@@ -252,7 +264,7 @@ func (o *ControllerEnvironmentOptions) getIndex(w http.ResponseWriter, r *http.R
 func (o *ControllerEnvironmentOptions) startPipelineRun(w http.ResponseWriter, r *http.Request) {
 	err := o.stepGitCredentials()
 	if err != nil {
-		log.Warn(err.Error())
+		log.Logger().Warn(err.Error())
 	}
 
 	sourceURL := o.SourceURL
@@ -279,7 +291,7 @@ func (o *ControllerEnvironmentOptions) startPipelineRun(w http.ResponseWriter, r
 		pr.CustomLabels = append(pr.CustomLabels, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	log.Infof("triggering pipeline for repo %s branch %s revision %s\n", sourceURL, branch, revision)
+	log.Logger().Infof("triggering pipeline for repo %s branch %s revision %s", sourceURL, branch, revision)
 
 	err = pr.Run()
 	if err != nil {
@@ -326,7 +338,7 @@ func (o *ControllerEnvironmentOptions) discoverWebHookURL() (string, error) {
 
 			if !loggedWait {
 				loggedWait = true
-				log.Infof("waiting for the external IP on the service %s in namespace %s ...\n", environmentControllerService, ns)
+				log.Logger().Infof("waiting for the external IP on the service %s in namespace %s ...", environmentControllerService, ns)
 			}
 			return false, nil
 		}
@@ -427,12 +439,12 @@ func (o *ControllerEnvironmentOptions) marshalPayload(w http.ResponseWriter, r *
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
 
-	log.Infof("completed request successfully and returned: %s\n", string(data))
+	log.Logger().Infof("completed request successfully and returned: %s", string(data))
 	return nil
 }
 
 func (o *ControllerEnvironmentOptions) returnError(err error, message string, w http.ResponseWriter, r *http.Request) {
-	log.Errorf("returning error: %v %s", err, message)
+	log.Logger().Errorf("returning error: %v %s", err, message)
 	responseHTTPError(w, http.StatusInternalServerError, "500 Internal Error: "+message+" "+err.Error())
 }
 
@@ -440,8 +452,8 @@ func (o *ControllerEnvironmentOptions) stepGitCredentials() error {
 	if !o.NoGitCredeentialsInit {
 		copy := *o.CommonOptions
 		copy.BatchMode = true
-		gsc := &StepGitCredentialsOptions{
-			StepOptions: StepOptions{
+		gsc := &git.StepGitCredentialsOptions{
+			StepOptions: opts.StepOptions{
 				CommonOptions: &copy,
 			},
 		}
@@ -461,7 +473,7 @@ func (o *ControllerEnvironmentOptions) handleWebHookRequests(w http.ResponseWrit
 		return
 	}
 	eventType, eventGUID, data, valid, _ := ValidateWebhook(w, r, o.secret, o.RequireHeaders)
-	log.Infof("webhook handler invoked event type %s UID %s valid %s method %s\n", eventType, eventGUID, strconv.FormatBool(valid), r.Method)
+	log.Logger().Infof("webhook handler invoked event type %s UID %s valid %s method %s", eventType, eventGUID, strconv.FormatBool(valid), r.Method)
 	if !valid {
 		return
 	}
@@ -486,7 +498,7 @@ func (o *ControllerEnvironmentOptions) handleWebHookRequests(w http.ResponseWrit
 		return
 	}
 
-	log.Infof("starting pipeline from event type %s UID %s valid %s method %s\n", eventType, eventGUID, strconv.FormatBool(valid), r.Method)
+	log.Logger().Infof("starting pipeline from event type %s UID %s valid %s method %s", eventType, eventGUID, strconv.FormatBool(valid), r.Method)
 	w.Write([]byte("OK"))
 
 	go o.startPipelineRun(w, r)
@@ -494,11 +506,20 @@ func (o *ControllerEnvironmentOptions) handleWebHookRequests(w http.ResponseWrit
 
 func (o *ControllerEnvironmentOptions) registerWebHook(webhookURL string, secret []byte) error {
 	gitURL := o.SourceURL
-	log.Infof("verifying that the webhook is registered for the git repository %s\n", util.ColorInfo(gitURL))
+	log.Logger().Infof("verifying that the webhook is registered for the git repository %s", util.ColorInfo(gitURL))
 
-	provider, err := o.GitProviderForURL(gitURL, "creating webhook git provider")
-	if err != nil {
-		return errors.Wrapf(err, "failed to create git provider for git URL %s", gitURL)
+	var provider gits.GitProvider
+	var err error
+	if o.GitKind != "" {
+		provider, err = o.GitProviderForGitServerURL(gitURL, o.GitKind)
+		if err != nil {
+			return errors.Wrapf(err, "failed to create git provider for git URL %s kind %s", gitURL, o.GitKind)
+		}
+	} else {
+		provider, err = o.GitProviderForURL(gitURL, "creating webhook git provider")
+		if err != nil {
+			return errors.Wrapf(err, "failed to create git provider for git URL %s", gitURL)
+		}
 	}
 	webHookData := &gits.GitWebHookArguments{
 		Owner: o.GitOwner,

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -42,7 +43,7 @@ func NewCmdGetTeamRole(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.addGetFlags(cmd)
@@ -60,7 +61,7 @@ func (o *GetTeamRoleOptions) Run() error {
 		return err
 	}
 	if len(teamRoles) == 0 {
-		log.Info(`
+		log.Logger().Info(`
 There are no Team roles defined so far!
 `)
 		return nil

@@ -22,8 +22,13 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/jenkins-x/jx/pkg/jx/cmd/add"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/namespace"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/promote"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -56,9 +61,10 @@ const (
 func NewJXCommand(f clients.Factory, in terminal.FileReader, out terminal.FileWriter,
 	err io.Writer, args []string) *cobra.Command {
 	cmds := &cobra.Command{
-		Use:   "jx",
-		Short: "jx is a command line tool for working with Jenkins X",
-		Run:   runHelp,
+		Use:              "jx",
+		Short:            "jx is a command line tool for working with Jenkins X",
+		PersistentPreRun: setLoggingLevel,
+		Run:              runHelp,
 	}
 
 	features.Init()
@@ -68,7 +74,7 @@ func NewJXCommand(f clients.Factory, in terminal.FileReader, out terminal.FileWr
 	// commonOpts holds the global flags that will be shared/inherited by all sub-commands created bellow
 	commonOpts.AddCommonFlags(cmds)
 
-	addCommands := NewCmdAdd(commonOpts)
+	addCommands := add.NewCmdAdd(commonOpts)
 	createCommands := NewCmdCreate(commonOpts)
 	deleteCommands := NewCmdDelete(commonOpts)
 	getCommands := NewCmdGet(commonOpts)
@@ -105,7 +111,7 @@ func NewJXCommand(f clients.Factory, in terminal.FileReader, out terminal.FileWr
 
 	environmentsCommands := []*cobra.Command{
 		NewCmdPreview(commonOpts),
-		NewCmdPromote(commonOpts),
+		promote.NewCmdPromote(commonOpts),
 	}
 	environmentsCommands = append(environmentsCommands, findCommands("environment", createCommands, deleteCommands, editCommands, getCommands)...)
 
@@ -134,7 +140,7 @@ func NewJXCommand(f clients.Factory, in terminal.FileReader, out terminal.FileWr
 				NewCmdContext(commonOpts),
 				NewCmdEnvironment(commonOpts),
 				NewCmdTeam(commonOpts),
-				NewCmdNamespace(commonOpts),
+				namespace.NewCmdNamespace(commonOpts),
 				NewCmdPrompt(commonOpts),
 				NewCmdScan(commonOpts),
 				NewCmdShell(commonOpts),
@@ -201,7 +207,7 @@ func NewJXCommand(f clients.Factory, in terminal.FileReader, out terminal.FileWr
 		}
 		pluginCommandGroups, managedPluginsEnabled, err := commonOpts.GetPluginCommandGroups(verifier)
 		if err != nil {
-			log.Errorf("%v\n", err)
+			log.Logger().Errorf("%v", err)
 		}
 		return pluginCommandGroups, managedPluginsEnabled
 	}
@@ -229,12 +235,12 @@ func NewJXCommand(f clients.Factory, in terminal.FileReader, out terminal.FileWr
 		if _, _, err := cmds.Find(cmdPathPieces); err != nil {
 			if _, managedPluginsEnabled := getPluginCommandGroups(); managedPluginsEnabled {
 				if err := handleEndpointExtensions(managedPlugins, cmdPathPieces); err != nil {
-					log.Errorf("%v\n", err)
+					log.Logger().Errorf("%v", err)
 					os.Exit(1)
 				}
 			} else {
 				if err := handleEndpointExtensions(localPlugins, cmdPathPieces); err != nil {
-					log.Errorf("%v\n", err)
+					log.Logger().Errorf("%v", err)
 					os.Exit(1)
 				}
 			}
@@ -274,6 +280,25 @@ func fullPath(command *cobra.Command) string {
 		return fullPath(parent) + " " + name
 	}
 	return name
+}
+
+func setLoggingLevel(cmd *cobra.Command, args []string) {
+	verbose, err := strconv.ParseBool(cmd.Flag(opts.OptionVerbose).Value.String())
+	if err != nil {
+		log.Logger().Errorf("Unable to determine log level")
+	}
+
+	if verbose {
+		err := log.SetLevel("debug")
+		if err != nil {
+			log.Logger().Errorf("Unable to set log level to debug")
+		}
+	} else {
+		err := log.SetLevel("info")
+		if err != nil {
+			log.Logger().Errorf("Unable to set log level to info")
+		}
+	}
 }
 
 func runHelp(cmd *cobra.Command, args []string) {
@@ -316,7 +341,7 @@ func (h *managedPluginHandler) Lookup(filename string) (string, error) {
 		found := possibles.Items[0]
 		if len(possibles.Items) > 1 {
 			// There is a warning about this when you install extensions as well
-			log.Warnf("More than one plugin installed for %s by apps. Selecting the one installed by %s at random.\n",
+			log.Logger().Warnf("More than one plugin installed for %s by apps. Selecting the one installed by %s at random.",
 				filename, found.Name)
 
 		}
@@ -366,7 +391,7 @@ func handleEndpointExtensions(pluginHandler PluginHandler, cmdArgs []string) err
 		if err != nil || len(path) == 0 {
 			/* Usually "executable file not found in $PATH", spams output of jx help subcommand:
 			if err != nil {
-				log.Errorf("Error installing plugin for command %s. %v\n", remainingArgs, err)
+				log.Logger().Errorf("Error installing plugin for command %s. %v\n", remainingArgs, err)
 			}
 			*/
 			remainingArgs = remainingArgs[:len(remainingArgs)-1]

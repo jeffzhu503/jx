@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
@@ -47,7 +49,7 @@ func NewCmdDeleteGitServer(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().BoolVarP(&options.IgnoreMissingServer, "ignore-missing", "i", false, "Silently ignore attempts to remove a Git server name that does not exist")
@@ -88,7 +90,7 @@ func (o *DeleteGitServerOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Deleted Git servers: %s from local settings\n", util.ColorInfo(strings.Join(args, ", ")))
+	log.Logger().Infof("Deleted Git servers: %s from local settings", util.ColorInfo(strings.Join(args, ", ")))
 	return nil
 }
 
@@ -109,7 +111,7 @@ func (o *DeleteGitServerOptions) deleteServerResources(server *auth.AuthServer) 
 		ann := secret.Annotations
 		if ann != nil && ann[kube.AnnotationURL] == server.URL {
 			name := secret.Name
-			log.Infof("Deleting Secret %s\n", util.ColorInfo(name))
+			log.Logger().Infof("Deleting Secret %s", util.ColorInfo(name))
 
 			err = kubeClient.CoreV1().Secrets(ns).Delete(name, nil)
 			if err != nil {
@@ -125,7 +127,7 @@ func (o *DeleteGitServerOptions) deleteServerResources(server *auth.AuthServer) 
 	for _, gitService := range gitServices.Items {
 		if gitService.Spec.URL == server.URL {
 			name := gitService.Name
-			log.Infof("Deleting GitService %s\n", util.ColorInfo(name))
+			log.Logger().Infof("Deleting GitService %s", util.ColorInfo(name))
 			err = gitServiceResources.Delete(name, nil)
 			if err != nil {
 				return err

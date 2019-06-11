@@ -3,8 +3,10 @@ package users
 import (
 	"fmt"
 
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/jenkins-x/jx/pkg/kube"
-	"k8s.io/apimachinery/pkg/api/errors"
+	"github.com/pkg/errors"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -27,6 +29,10 @@ type GitUserResolver struct {
 
 // GitSignatureAsUser resolves the signature to a Jenkins X User
 func (r *GitUserResolver) GitSignatureAsUser(signature *object.Signature) (*jenkinsv1.User, error) {
+	// We can't resolve no info so shortcircuit
+	if signature.Name == "" && signature.Email == "" {
+		return nil, errors.Errorf("both name and email are empty")
+	}
 	gitUser := &gits.GitUser{
 		Email: signature.Email,
 		Name:  signature.Name,
@@ -42,7 +48,9 @@ func (r *GitUserResolver) GitUserSliceAsUserDetailsSlice(users []gits.GitUser) (
 		if err != nil {
 			return nil, err
 		}
-		answer = append(answer, u.Spec)
+		if u != nil {
+			answer = append(answer, u.Spec)
+		}
 	}
 	return answer, nil
 }
@@ -52,6 +60,9 @@ func (r *GitUserResolver) GitUserSliceAsUserDetailsSlice(users []gits.GitUser) (
 // * making a call to the gitProvider
 // as often user info is not complete in a git response
 func (r *GitUserResolver) Resolve(user *gits.GitUser) (*jenkinsv1.User, error) {
+	if user == nil {
+		return nil, nil
+	}
 	selectUsers := func(id string, users []jenkinsv1.User) (string, []jenkinsv1.User,
 		*jenkinsv1.User, error) {
 		var gitUser *gits.GitUser
@@ -65,7 +76,7 @@ func (r *GitUserResolver) Resolve(user *gits.GitUser) (*jenkinsv1.User, error) {
 		possibles := make([]jenkinsv1.User, 0)
 		if gitUser == nil {
 			// annoyingly UserInfo swallows the error, so we recreate it!
-			log.Warnf("unable to find user with login %s from %s", user.Login, r.GitProvider.Kind())
+			log.Logger().Warnf("unable to find user with login %s from %s", user.Login, r.GitProvider.Kind())
 		} else if user.Email != "" {
 			// Don't do this if email is empty as otherwise we risk matching any users who have empty emails!
 			for _, u := range users {
@@ -79,7 +90,7 @@ func (r *GitUserResolver) Resolve(user *gits.GitUser) (*jenkinsv1.User, error) {
 		// Check if the user id is available, if not append "-<n>" where <n> is some integer
 		for i := 0; true; i++ {
 			_, err := r.JXClient.JenkinsV1().Users(r.Namespace).Get(id, v1.GetOptions{})
-			if errors.IsNotFound(err) {
+			if k8serrors.IsNotFound(err) {
 				break
 			}
 			id = fmt.Sprintf("%s-%d", gitUser.Login, i)
@@ -103,7 +114,7 @@ func (r *GitUserResolver) UpdateUserFromPRAuthor(author *jenkinsv1.User, pullReq
 			}
 			for _, commit := range commits {
 				if commit.Author != nil && gitLogin == commit.Author.Login {
-					log.Info("Found commit author match for: " + author.
+					log.Logger().Info("Found commit author match for: " + author.
 						Spec.Login + " with email address: " + commit.Author.Email + "\n")
 					author.Spec.Email = commit.Author.Email
 					updated = true

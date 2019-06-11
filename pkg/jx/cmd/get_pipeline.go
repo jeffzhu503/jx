@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"errors"
-	"net/url"
 	"sort"
+
+	"github.com/jenkins-x/jx/pkg/jenkins"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 
 	gojenkins "github.com/jenkins-x/golang-jenkins"
 	"github.com/jenkins-x/jx/pkg/log"
@@ -63,7 +65,7 @@ func NewCmdGetPipeline(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -166,30 +168,30 @@ func createTable(o *GetPipelineOptions) table.Table {
 	return table
 }
 
-func (o *GetPipelineOptions) dump(jenkins gojenkins.JenkinsClient, name string, table *table.Table) error {
-	job, err := jenkins.GetJob(name)
+func (o *GetPipelineOptions) dump(jenkinsClient gojenkins.JenkinsClient, name string, table *table.Table) error {
+	job, err := jenkinsClient.GetJob(name)
 	if err != nil {
 		return err
 	}
 
 	if job.Jobs != nil {
 		for _, child := range job.Jobs {
-			o.dump(jenkins, job.FullName+"/"+child.Name, table)
+			o.dump(jenkinsClient, job.FullName+"/"+child.Name, table)
 		}
 		if len(job.Jobs) == 0 {
-			log.Warnf("Job %s has no children!\n", job.Name)
+			log.Logger().Warnf("Job %s has no children!", job.Name)
 		}
 	} else {
-		job.Url = switchJenkinsBaseURL(job.Url, jenkins.BaseURL())
-		last, err := jenkins.GetLastBuild(job)
+		job.Url = jenkins.SwitchJenkinsBaseURL(job.Url, jenkinsClient.BaseURL())
+		last, err := jenkinsClient.GetLastBuild(job)
 
 		if err != nil {
-			if jenkins.IsErrNotFound(err) {
+			if jenkinsClient.IsErrNotFound(err) {
 				if o.matchesFilter(&job) {
 					table.AddRow(job.FullName, job.Url, "", "Never Built", "")
 				}
 			} else {
-				log.Warnf("Failed to find last build for job %s: %s\n", job.Name, err.Error())
+				log.Logger().Warnf("Failed to find last build for job %s: %s", job.Name, err.Error())
 			}
 			return nil
 		}
@@ -202,31 +204,6 @@ func (o *GetPipelineOptions) dump(jenkins gojenkins.JenkinsClient, name string, 
 		}
 	}
 	return nil
-}
-
-// switchJenkinsBaseURL sometimes a Jenkins server does not know its external URL so lets switch the base URL of the job
-// URL to use the known working baseURL of the jenkins server
-func switchJenkinsBaseURL(jobURL string, baseURL string) string {
-	if jobURL == "" {
-		return baseURL
-	}
-	if baseURL == "" {
-		return jobURL
-	}
-	u, err := url.Parse(jobURL)
-	if err != nil {
-		log.Warnf("failed to parse Jenkins Job URL %s due to: %s\n", jobURL, err)
-		return jobURL
-	}
-
-	u2, err := url.Parse(baseURL)
-	if err != nil {
-		log.Warnf("failed to parse Jenkins base URL %s due to: %s\n", baseURL, err)
-		return jobURL
-	}
-	u.Host = u2.Host
-	u.Scheme = u2.Scheme
-	return u.String()
 }
 
 func (o *GetPipelineOptions) matchesFilter(job *gojenkins.Job) bool {

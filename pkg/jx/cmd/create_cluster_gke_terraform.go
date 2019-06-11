@@ -3,6 +3,11 @@ package cmd
 import (
 	"strings"
 
+	randomdata "github.com/Pallinder/go-randomdata"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	survey "gopkg.in/AlecAivazis/survey.v1"
+	git "gopkg.in/src-d/go-git.v4"
+
 	"fmt"
 
 	"errors"
@@ -15,7 +20,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Pallinder/go-randomdata"
 	"github.com/jenkins-x/jx/pkg/cloud"
 	"github.com/jenkins-x/jx/pkg/cloud/gke"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -23,8 +27,6 @@ import (
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
-	"gopkg.in/AlecAivazis/survey.v1"
-	"gopkg.in/src-d/go-git.v4"
 )
 
 // CreateClusterOptions the flags for running create cluster
@@ -87,7 +89,7 @@ func NewCmdCreateClusterGKETerraform(commonOpts *opts.CommonOptions) *cobra.Comm
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -121,7 +123,7 @@ func (o *CreateClusterGKETerraformOptions) Run() error {
 
 	err = o.createClusterGKETerraform()
 	if err != nil {
-		log.Errorf("error creating cluster %v", err)
+		log.Logger().Errorf("error creating cluster %v", err)
 		return err
 	}
 
@@ -162,8 +164,16 @@ func (o *CreateClusterGKETerraformOptions) createClusterGKETerraform() error {
 	}
 
 	if o.Flags.ClusterName == "" {
-		o.Flags.ClusterName = strings.ToLower(randomdata.SillyName())
-		log.Infof("No cluster name provided so using a generated one: %s\n", o.Flags.ClusterName)
+		clusterName := strings.ToLower(randomdata.SillyName())
+		prompt := &survey.Input{
+			Message: "What cluster name would you like to use",
+			Default: clusterName,
+		}
+
+		err = survey.AskOne(prompt, &o.Flags.ClusterName, nil, surveyOpts)
+		if err != nil {
+			return err
+		}
 	}
 
 	zone := o.Flags.Zone
@@ -237,7 +247,7 @@ func (o *CreateClusterGKETerraformOptions) createClusterGKETerraform() error {
 	if o.ServiceAccount == "" {
 		// check to see if a service account exists
 		serviceAccount := fmt.Sprintf("jx-%s", o.Flags.ClusterName)
-		log.Infof("Checking for service account %s\n", serviceAccount)
+		log.Logger().Infof("Checking for service account %s", serviceAccount)
 
 		keyPath, err = gke.GetOrCreateServiceAccount(serviceAccount, projectId, clusterHome, gke.RequiredServiceAccountRoles)
 		if err != nil {
@@ -308,7 +318,7 @@ func (o *CreateClusterGKETerraformOptions) createClusterGKETerraform() error {
 		return err
 	}
 
-	log.Info("Applying plan...\n")
+	log.Logger().Info("Applying plan...")
 
 	args = []string{"apply",
 		"-auto-approve",
@@ -356,9 +366,9 @@ func (o *CreateClusterGKETerraformOptions) createClusterGKETerraform() error {
 	if err != nil {
 		return err
 	}
-	log.Info(output)
+	log.Logger().Info(output)
 
-	log.Info("Initialising cluster ...\n")
+	log.Logger().Info("Initialising cluster ...")
 	if o.InstallOptions.Flags.DefaultEnvironmentPrefix == "" {
 		o.InstallOptions.Flags.DefaultEnvironmentPrefix = o.Flags.ClusterName
 	}
@@ -371,7 +381,7 @@ func (o *CreateClusterGKETerraformOptions) createClusterGKETerraform() error {
 	if err != nil {
 		return err
 	}
-	log.Info(context)
+	log.Logger().Info(context)
 
 	ns := o.InstallOptions.Flags.Namespace
 	if ns == "" {
@@ -421,7 +431,7 @@ func (o *CreateClusterGKETerraformOptions) getGoogleProjectId() (string, error) 
 		}
 	} else if len(existingProjects) == 1 {
 		projectId = existingProjects[0]
-		log.Infof("Using the only Google Cloud Project %s to create the cluster\n", util.ColorInfo(projectId))
+		log.Logger().Infof("Using the only Google Cloud Project %s to create the cluster", util.ColorInfo(projectId))
 	} else {
 		prompts := &survey.Select{
 			Message: "Google Cloud Project:",
@@ -451,10 +461,10 @@ func (o *CreateClusterGKETerraformOptions) writeKeyValueIfNotExists(path string,
 		}
 		contents := string(buffer)
 
-		o.Debugf("Checking if %s contains %s\n", path, key)
+		log.Logger().Debugf("Checking if %s contains %s", path, key)
 
 		if strings.Contains(contents, key) {
-			o.Debugf("Skipping %s\n", key)
+			log.Logger().Debugf("Skipping %s", key)
 			return nil
 		}
 	}
@@ -466,7 +476,7 @@ func (o *CreateClusterGKETerraformOptions) writeKeyValueIfNotExists(path string,
 	defer file.Close()
 
 	line := fmt.Sprintf("%s = \"%s\"", key, value)
-	o.Debugf("Writing '%s' to %s\n", line, path)
+	log.Logger().Debugf("Writing '%s' to %s", line, path)
 
 	_, err = file.WriteString(line)
 	if err != nil {

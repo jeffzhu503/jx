@@ -6,14 +6,14 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"testing"
+
+	"github.com/jenkins-x/jx/pkg/jx/cmd/add"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/helm/pkg/proto/hapi/chart"
 
 	"github.com/pkg/errors"
 	"sigs.k8s.io/yaml"
-
-	"github.com/jenkins-x/jx/pkg/environments"
 
 	resources_test "github.com/jenkins-x/jx/pkg/kube/resources/mocks"
 
@@ -22,7 +22,6 @@ import (
 	"github.com/jenkins-x/jx/pkg/helm"
 	helm_test "github.com/jenkins-x/jx/pkg/helm/mocks"
 	"github.com/jenkins-x/jx/pkg/io/secrets"
-	"github.com/jenkins-x/jx/pkg/jx/cmd"
 	cmd_test "github.com/jenkins-x/jx/pkg/jx/cmd/clients/mocks"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -37,7 +36,7 @@ import (
 
 // AppTestOptions contains all useful data from the test environment initialized by `prepareInitialPromotionEnv`
 type AppTestOptions struct {
-	ConfigureGitFn  environments.ConfigureGitFn
+	ConfigureGitFn  gits.ConfigureGitFn
 	CommonOptions   *opts.CommonOptions
 	FakeGitProvider *gits.FakeProvider
 	DevRepo         *gits.FakeRepository
@@ -71,8 +70,8 @@ func (o *AppTestOptions) AddApp(values map[string]interface{}, prefix string) (s
 	name := fmt.Sprintf("%s%s", prefix, nameUUID.String())
 	alias := fmt.Sprintf("%s-alias", name)
 	version := "0.0.1"
-	installOpts := &cmd.AddAppOptions{
-		AddOptions: cmd.AddOptions{
+	installOpts := &add.AddAppOptions{
+		AddOptions: add.AddOptions{
 			CommonOptions: o.CommonOptions,
 		},
 		Version:              version,
@@ -98,9 +97,8 @@ func (o *AppTestOptions) AddApp(values map[string]interface{}, prefix string) (s
 }
 
 // DirectlyAddAppToGitOps modifies the environment git repo directly to add a dummy app
-func (o *AppTestOptions) DirectlyAddAppToGitOps(values map[string]interface{}, prefix string) (name string,
-	alias string,
-	version string, err error) {
+func (o *AppTestOptions) DirectlyAddAppToGitOps(appName string, values map[string]interface{}, prefix string) (name string,
+	alias string, version string, err error) {
 	envDir, err := o.CommonOptions.EnvironmentsDir()
 	if err != nil {
 		return "", "", "", err
@@ -126,13 +124,17 @@ func (o *AppTestOptions) DirectlyAddAppToGitOps(values map[string]interface{}, p
 		}
 	}
 	// Put some commits on a branch
-	nameUUID, err := uuid.NewV4()
-	if err != nil {
-		return "", "", "", err
+	name = appName
+	if name == "" {
+		nameUUID, err := uuid.NewV4()
+		if err != nil {
+			return "", "", "", err
+		}
+		name = nameUUID.String()
 	}
-	name = fmt.Sprintf("%s%s", prefix, nameUUID.String())
 	alias = fmt.Sprintf("%s-alias", name)
 	version = "0.0.1"
+	name = fmt.Sprintf("%s-%s", prefix, name)
 	requirements.Dependencies = append(requirements.Dependencies, &helm.Dependency{
 		Name:       name,
 		Alias:      alias,
@@ -171,15 +173,15 @@ func (o *AppTestOptions) DirectlyAddAppToGitOps(values map[string]interface{}, p
 
 // Cleanup must be run in a defer statement whenever CreateAppTestOptions is run
 func (o *AppTestOptions) Cleanup() error {
-	err := cmd.CleanupTestEnvironmentDir(o.CommonOptions)
+	err := CleanupTestEnvironmentDir(o.CommonOptions)
 	if err != nil {
 		return err
 	}
-	err = cmd.CleanupTestKubeConfigDir(o.OriginalKubeCfg, o.TempKubeCfg)
+	err = CleanupTestKubeConfigDir(o.OriginalKubeCfg, o.TempKubeCfg)
 	if err != nil {
 		return err
 	}
-	err = cmd.CleanupTestJxHomeDir(o.OriginalJxHome, o.TempJxHome)
+	err = CleanupTestJxHomeDir(o.OriginalJxHome, o.TempJxHome)
 	if err != nil {
 		return err
 	}
@@ -187,18 +189,19 @@ func (o *AppTestOptions) Cleanup() error {
 }
 
 // CreateAppTestOptions configures the mock environment for running apps related tests
-func CreateAppTestOptions(gitOps bool, t *testing.T) *AppTestOptions {
+// If you use this function, then don't use t.Parallel
+func CreateAppTestOptions(gitOps bool, appName string, t assert.TestingT) *AppTestOptions {
 	mockFactory := cmd_test.NewMockFactory()
 	commonOpts := opts.NewCommonOptionsWithFactory(mockFactory)
 	o := AppTestOptions{
 		CommonOptions: &commonOpts,
 		MockFactory:   mockFactory,
 	}
-	originalJxHome, tempJxHome, err := cmd.CreateTestJxHomeDir()
+	originalJxHome, tempJxHome, err := CreateTestJxHomeDir()
 	assert.NoError(t, err)
 	o.OriginalJxHome = originalJxHome
 	o.TempJxHome = tempJxHome
-	originalKubeCfg, tempKubeCfg, err := cmd.CreateTestKubeConfigDir()
+	originalKubeCfg, tempKubeCfg, err := CreateTestKubeConfigDir()
 	assert.NoError(t, err)
 	o.OriginalKubeCfg = originalKubeCfg
 	o.TempKubeCfg = tempKubeCfg
@@ -231,7 +234,7 @@ func CreateAppTestOptions(gitOps bool, t *testing.T) *AppTestOptions {
 	}
 	o.MockHelmer = helm_test.NewMockHelmer()
 	installerMock := resources_test.NewMockInstaller()
-	cmd.ConfigureTestOptionsWithResources(o.CommonOptions,
+	ConfigureTestOptionsWithResources(o.CommonOptions,
 		[]runtime.Object{},
 		[]runtime.Object{
 			devEnv,
@@ -242,7 +245,7 @@ func CreateAppTestOptions(gitOps bool, t *testing.T) *AppTestOptions {
 		installerMock,
 	)
 
-	err = cmd.CreateTestEnvironmentDir(o.CommonOptions)
+	err = CreateTestEnvironmentDir(o.CommonOptions)
 	assert.NoError(t, err)
 	o.ConfigureGitFn = func(dir string, gitInfo *gits.GitRepository, gitter gits.Gitter) error {
 		err := gitter.Init(dir)
@@ -262,6 +265,36 @@ func CreateAppTestOptions(gitOps bool, t *testing.T) *AppTestOptions {
 		if err != nil {
 			return err
 		}
+		if appName != "" {
+			appName = fmt.Sprintf("%s-%s", "jx-app", appName)
+			err = os.MkdirAll(filepath.Join(dir, appName, "templates"), 0700)
+			if err != nil {
+				return err
+			}
+			app := jenkinsv1.App{
+				ObjectMeta: v1.ObjectMeta{
+					Name: appName,
+					Labels: map[string]string{
+						helm.LabelAppName:    appName,
+						helm.LabelAppVersion: "0.0.1",
+					},
+					Annotations: map[string]string{
+						helm.AnnotationAppDescription: "Description",
+						helm.AnnotationAppRepository:  "Repository",
+					},
+				},
+			}
+
+			data, err = yaml.Marshal(app)
+			if err != nil {
+				return err
+			}
+			err = ioutil.WriteFile(filepath.Join(dir, appName, "templates", "app.yaml"), data, 0755)
+			if err != nil {
+				return err
+			}
+		}
+
 		return gitter.AddCommit(dir, "Initial Commit")
 	}
 	o.FakeGitProvider = fakeGitProvider
@@ -273,5 +306,4 @@ func CreateAppTestOptions(gitOps bool, t *testing.T) *AppTestOptions {
 		Name: devEnvRepoName,
 	}
 	return &o
-
 }

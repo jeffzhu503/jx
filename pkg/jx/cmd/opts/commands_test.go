@@ -52,8 +52,9 @@ func TestVerboseOutput(t *testing.T) {
 func TestNonVerboseOutput(t *testing.T) {
 	tests.SkipForWindows(t, "go-expect does not work on windows")
 	t.Parallel()
-	console := tests.NewTerminal(t)
+	console := tests.NewTerminal(t, nil)
 	defer console.Close()
+	defer console.Cleanup()
 	o := opts.CommonOptions{Out: console.Out}
 	err := o.RunCommand("echo", "foo")
 	assert.NoError(t, err, "Should not error")

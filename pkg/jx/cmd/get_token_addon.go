@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
@@ -46,7 +47,7 @@ func NewCmdGetTokenAddon(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.addFlags(cmd)
@@ -61,7 +62,7 @@ func (o *GetTokenAddonOptions) Run() error {
 	}
 	config := authConfigSvc.Config()
 	if len(config.Servers) == 0 {
-		log.Warnf("No addon servers registered. To register a new token for an addon server use: %s\n", util.ColorInfo("jx create token addon"))
+		log.Logger().Warnf("No addon servers registered. To register a new token for an addon server use: %s", util.ColorInfo("jx create token addon"))
 		return nil
 	}
 	return o.displayUsersWithTokens(authConfigSvc)

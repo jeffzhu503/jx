@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/jenkins-x/jx/pkg/addon"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/spf13/cobra"
 
@@ -45,7 +46,7 @@ func NewCmdGetAddon(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -71,7 +72,7 @@ func (o *GetAddonOptions) Run() error {
 	}
 	releases, sortedKeys, err := o.Helm().ListReleases(ns)
 	if err != nil {
-		log.Warnf("Failed to find Helm installs: %s\n", err)
+		log.Logger().Warnf("Failed to find Helm installs: %s", err)
 	}
 
 	table := o.CreateTable()

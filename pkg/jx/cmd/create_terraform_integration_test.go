@@ -3,6 +3,7 @@
 package cmd_test
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/cmd_test_helpers"
 	"io/ioutil"
 	"os"
 	"path"
@@ -16,16 +17,16 @@ import (
 )
 
 func TestCreateOrganisationFolderStructures(t *testing.T) {
-	originalJxHome, tempJxHome, err := cmd.CreateTestJxHomeDir()
+	originalJxHome, tempJxHome, err := cmd_test_helpers.CreateTestJxHomeDir()
 	assert.NoError(t, err)
 	defer func() {
-		err := cmd.CleanupTestJxHomeDir(originalJxHome, tempJxHome)
+		err := cmd_test_helpers.CleanupTestJxHomeDir(originalJxHome, tempJxHome)
 		assert.NoError(t, err)
 	}()
-	originalKubeCfg, tempKubeCfg, err := cmd.CreateTestKubeConfigDir()
+	originalKubeCfg, tempKubeCfg, err := cmd_test_helpers.CreateTestKubeConfigDir()
 	assert.NoError(t, err)
 	defer func() {
-		err := cmd.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
+		err := cmd_test_helpers.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
 		assert.NoError(t, err)
 	}()
 
@@ -112,6 +113,7 @@ func TestCanCreateTerraformVarsFile(t *testing.T) {
 		DiskSize:      "100",
 		AutoRepair:    true,
 		AutoUpgrade:   false,
+		EnableVault:   true,
 	}
 
 	file, err := ioutil.TempFile("", "terraform-tf-vars")
@@ -138,5 +140,6 @@ func TestCanCreateTerraformVarsFile(t *testing.T) {
 	assert.Equal(t, "n1-standard-2", c2.MachineType)
 	assert.Equal(t, true, c2.AutoRepair)
 	assert.Equal(t, false, c2.AutoUpgrade)
+	assert.Equal(t, true, c2.EnableVault)
 
 }

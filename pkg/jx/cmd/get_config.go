@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/jenkins-x/jx/pkg/config"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
@@ -47,7 +48,7 @@ func NewCmdGetConfig(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.addGetConfigFlags(cmd)
@@ -65,8 +66,8 @@ func (o *GetConfigOptions) Run() error {
 		return err
 	}
 	if pc.IsEmpty() {
-		log.Info("No project configuration for this directory.")
-		log.Infof("To edit the configuration use: %s\n", util.ColorInfo("jx edit config"))
+		log.Logger().Info("No project configuration for this directory.")
+		log.Logger().Infof("To edit the configuration use: %s", util.ColorInfo("jx edit config"))
 		return nil
 	}
 	table := o.CreateTable()

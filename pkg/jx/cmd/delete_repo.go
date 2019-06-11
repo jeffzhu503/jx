@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	survey "gopkg.in/AlecAivazis/survey.v1"
+
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/gits"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -11,7 +14,6 @@ import (
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/spf13/cobra"
-	"gopkg.in/AlecAivazis/survey.v1"
 )
 
 var (
@@ -63,7 +65,7 @@ func NewCmdDeleteRepo(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	//addDeleteFlags(cmd, &options.CreateOptions)
@@ -135,7 +137,7 @@ func (o *DeleteRepoOptions) Run() error {
 	}
 
 	if !o.BatchMode {
-		log.Warnf("You are about to delete these repositories '%s' on the Git provider. This operation CANNOT be undone!",
+		log.Logger().Warnf("You are about to delete these repositories '%s' on the Git provider. This operation CANNOT be undone!",
 			strings.Join(names, ","))
 
 		flag := false
@@ -160,10 +162,10 @@ func (o *DeleteRepoOptions) Run() error {
 	for _, name := range names {
 		err = provider.DeleteRepository(owner, name)
 		if err != nil {
-			log.Warnf("Ensure Git Token has delete repo permissions or manually delete, for GitHub check https://github.com/settings/tokens\n")
-			log.Warnf("%s\n", err)
+			log.Logger().Warnf("Ensure Git Token has delete repo permissions or manually delete, for GitHub check https://github.com/settings/tokens")
+			log.Logger().Warnf("%s", err)
 		} else {
-			log.Infof("Deleted repository %s/%s\n", info(owner), info(name))
+			log.Logger().Infof("Deleted repository %s/%s", info(owner), info(name))
 		}
 	}
 	return nil

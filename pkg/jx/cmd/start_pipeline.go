@@ -8,6 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jenkins"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	gojenkins "github.com/jenkins-x/golang-jenkins"
 	"github.com/jenkins-x/jx/pkg/prow"
 
@@ -79,7 +82,7 @@ func NewCmdStartPipeline(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().BoolVarP(&options.Tail, "tail", "t", false, "Tails the build log to the current terminal")
@@ -259,24 +262,24 @@ func (o *StartPipelineOptions) createProwJob(jobname string) error {
 func (o *StartPipelineOptions) startJenkinsJob(name string) error {
 	job := o.Jobs[name]
 
-	jenkins, err := o.CreateCustomJenkinsClient(&o.JenkinsSelector)
+	jenkinsClient, err := o.CreateCustomJenkinsClient(&o.JenkinsSelector)
 	if err != nil {
 		return err
 	}
-	job.Url = switchJenkinsBaseURL(job.Url, jenkins.BaseURL())
+	job.Url = jenkins.SwitchJenkinsBaseURL(job.Url, jenkinsClient.BaseURL())
 
 	// ignore errors as it could be there's no last build yet
-	previous, _ := jenkins.GetLastBuild(job)
+	previous, _ := jenkinsClient.GetLastBuild(job)
 
 	params := url.Values{}
-	err = jenkins.Build(job, params)
+	err = jenkinsClient.Build(job, params)
 	if err != nil {
 		return err
 	}
 
 	i := 0
 	for {
-		last, err := jenkins.GetLastBuild(job)
+		last, err := jenkinsClient.GetLastBuild(job)
 
 		// lets ignore the first query in case there's no build yet
 		if i > 0 && err != nil {
@@ -285,10 +288,10 @@ func (o *StartPipelineOptions) startJenkinsJob(name string) error {
 		i++
 
 		if last.Number != previous.Number {
-			last.Url = switchJenkinsBaseURL(last.Url, jenkins.BaseURL())
+			last.Url = jenkins.SwitchJenkinsBaseURL(last.Url, jenkinsClient.BaseURL())
 
-			log.Infof("Started build of %s at %s\n", util.ColorInfo(name), util.ColorInfo(last.Url))
-			log.Infof("%s %s\n", util.ColorStatus("view the log at:"), util.ColorInfo(util.UrlJoin(last.Url, "/console")))
+			log.Logger().Infof("Started build of %s at %s", util.ColorInfo(name), util.ColorInfo(last.Url))
+			log.Logger().Infof("%s %s", util.ColorStatus("view the log at:"), util.ColorInfo(util.UrlJoin(last.Url, "/console")))
 			if o.Tail {
 				return o.TailJenkinsBuildLog(&o.JenkinsSelector, name, &last)
 			}

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/users"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -57,7 +59,7 @@ func NewCmdEditUserRole(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -124,7 +126,7 @@ func (o *EditUserRoleOptions) Run() error {
 	}
 
 	if len(roleNames) == 0 {
-		log.Warnf("No Team roles for team %s\n", teamNs)
+		log.Logger().Warnf("No Team roles for team %s", teamNs)
 		return nil
 	}
 
@@ -142,13 +144,13 @@ func (o *EditUserRoleOptions) Run() error {
 	}
 
 	rolesText := strings.Join(userRoles, ", ")
-	log.Infof("updating user %s for roles %s\n", name, rolesText)
+	log.Logger().Infof("updating user %s for roles %s", name, rolesText)
 
 	err = kube.UpdateUserRoles(kubeClient, jxClient, teamNs, userKind, name, userRoles, roles)
 	if err != nil {
 		return errors.Wrapf(err, "Failed to update user roles for user %s kind %s and roles %s", name, userKind, rolesText)
 	}
-	log.Infof("Updated roles for user: %s kind: %s roles: %s\n", util.ColorInfo(name), util.ColorInfo(userKind), util.ColorInfo(rolesText))
+	log.Logger().Infof("Updated roles for user: %s kind: %s roles: %s", util.ColorInfo(name), util.ColorInfo(userKind), util.ColorInfo(rolesText))
 	return nil
 
 }

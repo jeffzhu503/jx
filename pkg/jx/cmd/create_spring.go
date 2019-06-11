@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/gits"
 
 	"github.com/spf13/cobra"
@@ -67,7 +69,7 @@ func NewCmdCreateSpring(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.addCreateAppFlags(cmd)
@@ -137,7 +139,7 @@ func (o *CreateSpringOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Infof("Created Spring Boot project at %s\n", util.ColorInfo(outDir))
+	log.Logger().Infof("Created Spring Boot project at %s", util.ColorInfo(outDir))
 
 	if details != nil {
 		o.ConfigureImportOptions(details)

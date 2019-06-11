@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/kube"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -46,7 +48,7 @@ func NewCmdCreateAddonKnativeBuild(commonOpts *opts.CommonOptions) *cobra.Comman
 		Example: createAddonKnativeBuildExample,
 		Run: func(cmd *cobra.Command, args []string) {
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.username, "username", "u", "", "The pipeline bot username")
@@ -59,7 +61,7 @@ func (o *CreateAddonKnativeBuildOptions) Run() error {
 	if o.token == "" {
 		return fmt.Errorf("no pipeline git token provided")
 	}
-	log.Infof("Installing %s addon\n\n", kube.DefaultKnativeBuildReleaseName)
+	log.Logger().Infof("Installing %s addon\n", kube.DefaultKnativeBuildReleaseName)
 
 	o.SetValues = strings.Join([]string{"build.auth.git.username=" + o.username, "build.auth.git.password=" + o.token}, ",")
 
@@ -76,7 +78,7 @@ func (o *CreateAddonKnativeBuildOptions) Run() error {
 		return err
 	}
 
-	log.Infof("\n%s installed\n", kube.DefaultKnativeBuildReleaseName)
-	log.Infof("To watch a build running use: %s\n", util.ColorInfo("jx logs -k"))
+	log.Logger().Infof("\n%s installed", kube.DefaultKnativeBuildReleaseName)
+	log.Logger().Infof("To watch a build running use: %s", util.ColorInfo("jx logs -k"))
 	return nil
 }

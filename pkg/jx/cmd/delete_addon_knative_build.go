@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/log"
 	survey "gopkg.in/AlecAivazis/survey.v1"
@@ -47,7 +48,7 @@ func NewCmdDeleteAddonKnativeBuild(commonOpts *opts.CommonOptions) *cobra.Comman
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.ReleaseName, optionRelease, "r", kube.DefaultKnativeBuildReleaseName, "The chart release name")
@@ -70,7 +71,7 @@ func (o *DeleteKnativeBuildOptions) Run() error {
 	for _, crd := range knativeCRDs {
 		err = apisClient.ApiextensionsV1beta1().CustomResourceDefinitions().Delete(crd, &metav1.DeleteOptions{})
 		if err != nil {
-			log.Warnf("cannot delete CRD %s: %v", crd, err)
+			log.Logger().Warnf("cannot delete CRD %s: %v", crd, err)
 			confirm := &survey.Confirm{
 				Message: "There are warnings, do you wish to continue?",
 				Default: false,

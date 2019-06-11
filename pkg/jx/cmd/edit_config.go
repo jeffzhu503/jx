@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/spf13/cobra"
@@ -66,7 +68,7 @@ func NewCmdEditConfig(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Dir, "dir", "d", "", "The root project directory. Defaults to the current dir")
@@ -120,7 +122,7 @@ func (o *EditConfigOptions) Run() error {
 		if err != nil {
 			return err
 		}
-		log.Infof("Saved project configuration %s\n", util.ColorInfo(fileName))
+		log.Logger().Infof("Saved project configuration %s", util.ColorInfo(fileName))
 	}
 	return nil
 }

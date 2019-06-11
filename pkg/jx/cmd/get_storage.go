@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/step"
 	"sort"
 
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
@@ -19,7 +21,7 @@ type GetStorageOptions struct {
 var (
 	getStorageLong = templates.LongDesc(`
 		Display the storage configuration for different classifications.
-` + storageSupportDescription + opts.SeeAlsoText("jx step stash", "jx edit storage"))
+` + step.StorageSupportDescription + opts.SeeAlsoText("jx step stash", "jx edit storage"))
 
 	getStorageExample = templates.Examples(`
 		# List the storage configurations for different classifications for the current team
@@ -43,7 +45,7 @@ func NewCmdGetStorage(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -57,12 +59,12 @@ func (o *GetStorageOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	m := map[string]*v1.StorageLocation{}
+	m := map[string]v1.StorageLocation{}
 	for i, ls := range settings.StorageLocations {
-		m[ls.Classifier] = &settings.StorageLocations[i]
+		m[ls.Classifier] = settings.StorageLocations[i]
 	}
 	for _, name := range kube.Classifications {
-		if m[name] == nil {
+		if _, ok := m[name]; !ok {
 			m[name] = settings.StorageLocation(name)
 		}
 	}
@@ -74,8 +76,8 @@ func (o *GetStorageOptions) Run() error {
 	table := o.CreateTable()
 	table.AddRow("CLASSIFICATION", "LOCATION")
 	for _, n := range names {
-		ls := m[n]
-		if ls != nil {
+		ls, ok := m[n]
+		if ok {
 			table.AddRow(n, ls.Description())
 		}
 	}

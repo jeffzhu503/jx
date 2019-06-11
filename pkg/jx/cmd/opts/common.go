@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 
 	"github.com/heptio/sonobuoy/pkg/client"
@@ -20,7 +19,7 @@ import (
 	"github.com/pkg/errors"
 
 	vaultoperatorclient "github.com/banzaicloud/bank-vaults/operator/pkg/client/clientset/versioned"
-	gojenkins "github.com/jenkins-x/golang-jenkins"
+	"github.com/jenkins-x/golang-jenkins"
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/client/clientset/versioned"
@@ -43,6 +42,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// LogLevel represents the logging level when reporting feedback
+type LogLevel string
+
 const (
 	OptionServerName       = "name"
 	OptionServerURL        = "url"
@@ -55,6 +57,14 @@ const (
 	OptionEnvironment      = "env"
 	OptionApplication      = "app"
 	OptionTimeout          = "timeout"
+	OptionAdvancedMode     = "advanced-mode"
+
+	// LogInfo info level logging
+	LogInfo LogLevel = "INFO"
+	// LogWarning warning level logging
+	LogWarning LogLevel = "WARN"
+	// LogError error level logging
+	LogError LogLevel = "ERROR"
 )
 
 // ModifyDevEnvironmentFn a callback to create/update the development Environment
@@ -75,7 +85,6 @@ type CommonOptions struct {
 	ExternalJenkinsBaseURL string
 	In                     terminal.FileReader
 	InstallDependencies    bool
-	LogLevel               string
 	ModifyDevEnvironmentFn ModifyDevEnvironmentFn
 	ModifyEnvironmentFn    ModifyEnvironmentFn
 	NoBrew                 bool
@@ -85,6 +94,7 @@ type CommonOptions struct {
 	SkipAuthSecretsMerge   bool
 	Username               string
 	Verbose                bool
+	NotifyCallback         func(LogLevel, string)
 
 	apiExtensionsClient    apiextensionsclientset.Interface
 	certManagerClient      certmngclient.Interface
@@ -109,6 +119,7 @@ type CommonOptions struct {
 	tektonClient           tektonclient.Interface
 	vaultClient            vault.Client
 	vaultOperatorClient    vaultoperatorclient.Interface
+	AdvancedMode           bool
 }
 
 type ServerFlags struct {
@@ -139,15 +150,20 @@ func (o *CommonOptions) CreateTable() table.Table {
 	return o.factory.CreateTable(o.Out)
 }
 
-// NewCommonOptions a helper method to create a new CommonOptions instance
-// pre configured in a specific devNamespace
-func NewCommonOptions(devNamespace string, factory clients.Factory) CommonOptions {
-	return CommonOptions{
-		factory:          factory,
-		Out:              os.Stdout,
-		Err:              os.Stderr,
-		currentNamespace: devNamespace,
-		devNamespace:     devNamespace,
+// NotifyProgress by default logs info to the console but a custom callback can be added to send feedback to, say, a web UI
+func (o *CommonOptions) NotifyProgress(level LogLevel, format string, args ...interface{}) {
+	if o.NotifyCallback != nil {
+		text := fmt.Sprintf(format, args...)
+		o.NotifyCallback(level, text)
+		return
+	}
+	switch level {
+	case LogInfo:
+		log.Logger().Infof(format, args...)
+	case LogWarning:
+		log.Logger().Warnf(format, args...)
+	default:
+		log.Logger().Errorf(format, args...)
 	}
 }
 
@@ -174,36 +190,37 @@ func (o *CommonOptions) SetDevNamespace(ns string) {
 	o.devNamespace = ns
 	o.currentNamespace = ns
 	o.kubeClient = nil
-	log.Infof("Setting the dev namespace to: %s\n", util.ColorInfo(ns))
+	log.Logger().Infof("Setting the dev namespace to: %s", util.ColorInfo(ns))
 }
 
 func (o *CommonOptions) SetCurrentNamespace(ns string) {
 	o.currentNamespace = ns
 	o.kubeClient = nil
-	log.Infof("Setting the current namespace to: %s\n", util.ColorInfo(ns))
+	log.Logger().Infof("Setting the current namespace to: %s", util.ColorInfo(ns))
 }
 
-// Debugf outputs the given text to the console if verbose mode is enabled
-func (o *CommonOptions) Debugf(format string, a ...interface{}) {
-	if o.Verbose {
-		log.Infof(format, a...)
-	}
-}
-
-// addCommonFlags adds the common flags to the given command
-func (options *CommonOptions) AddCommonFlags(cmd *cobra.Command) {
+// AddBaseFlags adds the base flags for all commands
+func (o *CommonOptions) AddBaseFlags(cmd *cobra.Command) {
 	defaultBatchMode := false
 	if os.Getenv("JX_BATCH_MODE") == "true" {
 		defaultBatchMode = true
 	}
-	cmd.PersistentFlags().BoolVarP(&options.BatchMode, OptionBatchMode, "b", defaultBatchMode, "Runs in batch mode without prompting for user input")
-	cmd.PersistentFlags().BoolVarP(&options.Verbose, OptionVerbose, "", false, "Enables verbose output")
-	cmd.PersistentFlags().StringVarP(&options.LogLevel, OptionLogLevel, "", logrus.InfoLevel.String(), "Sets the logging level (panic, fatal, error, warning, info, debug)")
-	cmd.PersistentFlags().BoolVarP(&options.NoBrew, OptionNoBrew, "", false, "Disables brew package manager on MacOS when installing binary dependencies")
-	cmd.PersistentFlags().BoolVarP(&options.InstallDependencies, OptionInstallDeps, "", false, "Enables automatic dependencies installation when required")
-	cmd.PersistentFlags().BoolVarP(&options.SkipAuthSecretsMerge, OptionSkipAuthSecMerge, "", false, "Skips merging the secrets from local files with the secrets from Kubernetes cluster")
+	cmd.PersistentFlags().BoolVarP(&o.BatchMode, OptionBatchMode, "b", defaultBatchMode, "Runs in batch mode without prompting for user input")
+	cmd.PersistentFlags().BoolVarP(&o.Verbose, OptionVerbose, "", false, "Enables verbose output")
 
-	options.Cmd = cmd
+	o.Cmd = cmd
+}
+
+// AddCommonFlags adds the common flags to the given command
+func (o *CommonOptions) AddCommonFlags(cmd *cobra.Command) {
+	o.AddBaseFlags(cmd)
+
+	cmd.PersistentFlags().BoolVarP(&o.NoBrew, OptionNoBrew, "", false, "Disables brew package manager on MacOS when installing binary dependencies")
+	cmd.PersistentFlags().BoolVarP(&o.InstallDependencies, OptionInstallDeps, "", false, "Enables automatic dependencies installation when required")
+	cmd.PersistentFlags().BoolVarP(&o.SkipAuthSecretsMerge, OptionSkipAuthSecMerge, "", false, "Skips merging the secrets from local files with the secrets from Kubernetes cluster")
+	cmd.PersistentFlags().BoolVarP(&o.AdvancedMode, OptionAdvancedMode, "", false, "Advanced install options. This will prompt for advanced install options")
+
+	o.Cmd = cmd
 }
 
 // ApiExtensionsClient return or creates the api extension client
@@ -231,8 +248,9 @@ func (o *CommonOptions) KubeClient() (kubernetes.Interface, error) {
 			return nil, err
 		}
 		o.kubeClient = kubeClient
-		o.currentNamespace = currentNs
-
+		if o.currentNamespace == "" {
+			o.currentNamespace = currentNs
+		}
 	}
 	return o.kubeClient, nil
 }
@@ -440,7 +458,7 @@ func (o *CommonOptions) Helm() helm.Helmer {
 			if noTillerFlag == "true" {
 				helmTemplate = true
 			} else {
-				log.Warnf("Failed to retrieve team settings: %v - falling back to default settings...\n", err)
+				log.Logger().Warnf("Failed to retrieve team settings: %v - falling back to default settings...", err)
 			}
 		}
 		return o.NewHelm(o.Verbose, helmBinary, noTiller, helmTemplate)
@@ -543,7 +561,7 @@ func (o *CommonOptions) FindServer(config *auth.AuthConfig, serverFlags *ServerF
 		if name != "" && o.BatchMode {
 			server = config.GetServerByName(name)
 			if server == nil {
-				log.Warnf("Current server %s no longer exists\n", name)
+				log.Logger().Warnf("Current server %s no longer exists", name)
 			}
 		}
 	}
@@ -693,7 +711,7 @@ func (o *CommonOptions) Retry(attempts int, sleep time.Duration, call func() err
 
 		time.Sleep(sleep)
 
-		log.Warnf("\nretrying after error:%s\n\n", err)
+		log.Logger().Warnf("\nretrying after error:%s\n", err)
 	}
 	return fmt.Errorf("after %d attempts, last error: %s", attempts, err)
 }
@@ -727,7 +745,7 @@ func (o *CommonOptions) RetryUntilFatalError(attempts int, sleep time.Duration, 
 
 		time.Sleep(sleep)
 
-		log.Infof("retrying after error:%s\n", err)
+		log.Logger().Infof("retrying after error:%s", err)
 	}
 	return fmt.Errorf("after %d attempts, last error: %s", attempts, err)
 }
@@ -754,7 +772,7 @@ func (o *CommonOptions) RetryQuiet(attempts int, sleep time.Duration, call func(
 
 		message := fmt.Sprintf("retrying after error: %s", err)
 		if lastMessage == message {
-			log.Info(".")
+			log.Logger().Info(".")
 			dot = true
 		} else {
 			lastMessage = message
@@ -762,7 +780,7 @@ func (o *CommonOptions) RetryQuiet(attempts int, sleep time.Duration, call func(
 				dot = false
 				log.Blank()
 			}
-			log.Warnf("%s\n\n", lastMessage)
+			log.Logger().Warnf("%s\n", lastMessage)
 		}
 	}
 	return fmt.Errorf("after %d attempts, last error: %s", attempts, err)
@@ -792,7 +810,7 @@ func (o *CommonOptions) RetryQuietlyUntilTimeout(timeout time.Duration, sleep ti
 
 		message := fmt.Sprintf("retrying after error: %s", err)
 		if lastMessage == message {
-			log.Info(".")
+			log.Logger().Info(".")
 			dot = true
 		} else {
 			lastMessage = message
@@ -800,7 +818,7 @@ func (o *CommonOptions) RetryQuietlyUntilTimeout(timeout time.Duration, sleep ti
 				dot = false
 				log.Blank()
 			}
-			log.Warnf("%s\n\n", lastMessage)
+			log.Logger().Warnf("%s\n", lastMessage)
 		}
 	}
 }

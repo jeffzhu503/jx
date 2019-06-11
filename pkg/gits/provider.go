@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/jenkins-x/jx/pkg/auth"
-	"gopkg.in/AlecAivazis/survey.v1"
+	survey "gopkg.in/AlecAivazis/survey.v1"
 	"gopkg.in/AlecAivazis/survey.v1/terminal"
 )
 
@@ -163,6 +163,11 @@ type GitPullRequestArguments struct {
 	Head          string
 	Base          string
 	GitRepository *GitRepository
+	Labels        []string
+}
+
+func (a *GitPullRequestArguments) String() string {
+	return fmt.Sprintf("Title: %s; Body: %s; Head: %s; Base: %s; Labels: %s; Git Repo: %s", a.Title, a.Body, a.Head, a.Base, strings.Join(a.Labels, ", "), a.GitRepository.URL)
 }
 
 type GitWebHookArguments struct {

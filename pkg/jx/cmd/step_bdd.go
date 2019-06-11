@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/config"
 	"github.com/jenkins-x/jx/pkg/gits"
@@ -29,7 +31,7 @@ const (
 
 // StepBDDOptions contains the command line arguments for this command
 type StepBDDOptions struct {
-	StepOptions
+	opts.StepOptions
 
 	InstallOptions InstallOptions
 	Flags          StepBDDFlags
@@ -57,6 +59,8 @@ type StepBDDFlags struct {
 	TestGitPrNumber     string
 	JxBinary            string
 	TestCases           []string
+	VersionsRepoPr      bool
+	BaseDomain          string
 }
 
 var (
@@ -76,7 +80,7 @@ var (
 
 func NewCmdStepBDD(commonOpts *opts.CommonOptions) *cobra.Command {
 	options := StepBDDOptions{
-		StepOptions: StepOptions{
+		StepOptions: opts.StepOptions{
 			CommonOptions: commonOpts,
 		},
 		InstallOptions: CreateInstallOptions(commonOpts),
@@ -90,12 +94,13 @@ func NewCmdStepBDD(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	installOptions := &options.InstallOptions
 	installOptions.addInstallFlags(cmd, true)
 
+	cmd.Flags().StringVarP(&options.Flags.BaseDomain, "base-domain", "", "", "the base domain to use when creating the cluster")
 	cmd.Flags().StringVarP(&options.Flags.ConfigFile, "config", "c", "", "the config YAML file containing the clusters to create")
 	cmd.Flags().StringVarP(&options.Flags.GoPath, "gopath", "", "", "the GOPATH directory where the BDD test git repository will be cloned")
 	cmd.Flags().StringVarP(&options.Flags.GitProvider, "git-provider", "g", "", "the git provider kind")
@@ -115,6 +120,7 @@ func NewCmdStepBDD(commonOpts *opts.CommonOptions) *cobra.Command {
 	cmd.Flags().BoolVarP(&options.Flags.IgnoreTestFailure, "ignore-fail", "i", false, "Ignores test failures so that a BDD test run can capture the output and report on the test passes/failures")
 	cmd.Flags().BoolVarP(&options.Flags.IgnoreTestFailure, "parallel", "", false, "Should we process each cluster configuration in parallel")
 	cmd.Flags().BoolVarP(&options.Flags.UseRevision, "use-revision", "", true, "Use the git revision from the current git clone instead of the Pull Request branch")
+	cmd.Flags().BoolVarP(&options.Flags.VersionsRepoPr, "version-repo-pr", "", false, "For use with jenkins-x-versions PR. Indicates the git revision of the PR should be used to clone the jenkins-x-versions")
 
 	cmd.Flags().StringVarP(&installOptions.Flags.Provider, "provider", "", "", "Cloud service providing the Kubernetes cluster.  Supported providers: "+KubernetesProviderOptions())
 
@@ -169,7 +175,7 @@ func (o *StepBDDOptions) Run() error {
 
 		err = o.runTests(o.Flags.GoPath)
 		if err != nil {
-			log.Warnf("Failed to perform tests on cluster %s: %s\n", cluster.Name, err)
+			log.Logger().Warnf("Failed to perform tests on cluster %s: %s", cluster.Name, err)
 			errors = append(errors, err)
 		}
 	}
@@ -204,7 +210,7 @@ func (o *StepBDDOptions) runOnCurrentCluster() error {
 			teamPrefix += "tekton-"
 		}
 		team := kube.ToValidName(teamPrefix + gitProviderName + "-" + o.teamNameSuffix())
-		log.Infof("Creating team %s\n", util.ColorInfo(team))
+		log.Logger().Infof("Creating team %s", util.ColorInfo(team))
 
 		installOptions := o.InstallOptions
 		installOptions.CommonOptions = defaultOptions
@@ -299,15 +305,15 @@ func (o *StepBDDOptions) runOnCurrentCluster() error {
 		if gitUser != "" {
 			createEnv.GitRepositoryOptions.Username = gitUser
 		}
-		log.Infof("using environment git owner: %s\n", util.ColorInfo(gitOwner))
-		log.Infof("using environment git user: %s\n", util.ColorInfo(gitUser))
+		log.Logger().Infof("using environment git owner: %s", util.ColorInfo(gitOwner))
+		log.Logger().Infof("using environment git user: %s", util.ColorInfo(gitUser))
 
 		err = createEnv.Run()
 		if err != nil {
 			return err
 		}
 	} else {
-		log.Infof("Using the default git provider for the tests\n")
+		log.Logger().Infof("Using the default git provider for the tests")
 
 	}
 	return o.runTests(o.Flags.GoPath)
@@ -315,11 +321,11 @@ func (o *StepBDDOptions) runOnCurrentCluster() error {
 
 func (o *StepBDDOptions) deleteTeam(team string) error {
 	if !o.Flags.DeleteTeam {
-		log.Infof("Disabling the deletion of team: %s\n", util.ColorInfo(team))
+		log.Logger().Infof("Disabling the deletion of team: %s", util.ColorInfo(team))
 		return nil
 	}
 
-	log.Infof("Deleting team %s\n", util.ColorInfo(team))
+	log.Logger().Infof("Deleting team %s", util.ColorInfo(team))
 	deleteTeam := &DeleteTeamOptions{
 		CommonOptions: o.createDefaultCommonOptions(),
 		Confirm:       true,
@@ -365,14 +371,14 @@ func (o *StepBDDOptions) runTests(gopath string) error {
 	testDir := filepath.Join(gopath, gitRepository.Organisation, gitRepository.Name)
 	if !o.Flags.SkipRepoGitClone {
 
-		log.Infof("cloning BDD test repository to: %s\n", util.ColorInfo(testDir))
+		log.Logger().Infof("cloning BDD test repository to: %s", util.ColorInfo(testDir))
 
 		err = os.MkdirAll(testDir, util.DefaultWritePermissions)
 		if err != nil {
 			return errors.Wrapf(err, "Failed to create dir %s", testDir)
 		}
 
-		log.Infof("Cloning git repository %s to dir %s\n", util.ColorInfo(gitURL), util.ColorInfo(testDir))
+		log.Logger().Infof("Cloning git repository %s to dir %s", util.ColorInfo(gitURL), util.ColorInfo(testDir))
 		err = o.Git().CloneOrPull(gitURL, testDir)
 		if err != nil {
 			return errors.Wrapf(err, "Failed to clone repo %s to %s", gitURL, testDir)
@@ -380,7 +386,7 @@ func (o *StepBDDOptions) runTests(gopath string) error {
 
 		branchName := o.Flags.TestGitBranch
 		pullRequestNumber := o.Flags.TestGitPrNumber
-		log.Infof("Checking out repository branch %s to dir %s\n", util.ColorInfo(branchName), util.ColorInfo(testDir))
+		log.Logger().Infof("Checking out repository branch %s to dir %s", util.ColorInfo(branchName), util.ColorInfo(testDir))
 		if pullRequestNumber != "" {
 			err = o.Git().FetchBranch(testDir, "origin", fmt.Sprintf("pull/%s/head:%s", pullRequestNumber, branchName))
 			if err != nil {
@@ -407,6 +413,18 @@ func (o *StepBDDOptions) runTests(gopath string) error {
 	if o.Flags.DisableDeleteRepo {
 		env["JX_DISABLE_DELETE_REPO"] = "true"
 	}
+	awsAccessKey := os.Getenv("AWS_ACCESS_KEY_ID")
+	if awsAccessKey != "" {
+		env["AWS_ACCESS_KEY_ID"] = awsAccessKey
+	}
+	awsSecret := os.Getenv("AWS_SECRET_ACCESS_KEY")
+	if awsSecret != "" {
+		env["AWS_SECRET_ACCESS_KEY"] = awsSecret
+	}
+	awsRegion := os.Getenv("AWS_REGION")
+	if awsRegion != "" {
+		env["AWS_REGION"] = awsRegion
+	}
 
 	c := &util.Command{
 		Dir:  testDir,
@@ -423,7 +441,7 @@ func (o *StepBDDOptions) runTests(gopath string) error {
 	o.copyReports(testDir, err)
 
 	if o.Flags.IgnoreTestFailure && err != nil {
-		log.Infof("Ignoring test failure %s\n", err)
+		log.Logger().Infof("Ignoring test failure %s", err)
 		return nil
 	}
 	return err
@@ -499,12 +517,12 @@ func (o *StepBDDOptions) copyReports(testDir string, err error) error {
 	}
 	err = os.MkdirAll(reportsOutputDir, util.DefaultWritePermissions)
 	if err != nil {
-		log.Warnf("failed to make reports output dir: %s : %s\n", reportsOutputDir, err)
+		log.Logger().Warnf("failed to make reports output dir: %s : %s", reportsOutputDir, err)
 		return err
 	}
 	err = util.CopyDir(reportsDir, reportsOutputDir, true)
 	if err != nil {
-		log.Warnf("failed to copy reports dir: %s directory to: %s : %s\n", reportsDir, reportsOutputDir, err)
+		log.Logger().Warnf("failed to copy reports dir: %s directory to: %s : %s", reportsDir, reportsOutputDir, err)
 	}
 	return err
 }
@@ -512,7 +530,7 @@ func (o *StepBDDOptions) copyReports(testDir string, err error) error {
 func (o *StepBDDOptions) createCluster(cluster *bdd.CreateCluster) error {
 	buildNum := o.GetBuildNumber()
 	if buildNum == "" {
-		log.Warnf("No build number could be found from the environment variable $BUILD_NUMBER!\n")
+		log.Logger().Warnf("No build number could be found from the environment variable $BUILD_NUMBER!")
 	}
 	baseClusterName := kube.ToValidName(cluster.Name)
 	revision := os.Getenv("PULL_PULL_SHA")
@@ -520,23 +538,37 @@ func (o *StepBDDOptions) createCluster(cluster *bdd.CreateCluster) error {
 	if branch == "" {
 		branch = "x"
 	}
-	log.Infof("found git revision %s: branch %s\n", revision, branch)
+	log.Logger().Infof("found git revision %s: branch %s", revision, branch)
 
-	if o.InstallOptions.Flags.VersionsGitRef == "" {
+	if o.Flags.VersionsRepoPr && o.InstallOptions.Flags.VersionsGitRef == "" {
 		if revision != "" && (branch == "" || o.Flags.UseRevision) {
 			o.InstallOptions.Flags.VersionsGitRef = revision
 		} else {
 			o.InstallOptions.Flags.VersionsGitRef = branch
 		}
+	} else {
+		o.InstallOptions.Flags.VersionsGitRef = "master"
 	}
 
-	log.Infof("using versions git repo %s and ref %s\n", o.InstallOptions.Flags.VersionsRepository, o.InstallOptions.Flags.VersionsGitRef)
+	log.Logger().Infof("using versions git repo %s and ref %s", o.InstallOptions.Flags.VersionsRepository, o.InstallOptions.Flags.VersionsGitRef)
 
 	cluster.Name = kube.ToValidName(branch + "-" + buildNum + "-" + cluster.Name)
-	log.Infof("\nCreating cluster %s\n", util.ColorInfo(cluster.Name))
+	log.Logger().Infof("\nCreating cluster %s", util.ColorInfo(cluster.Name))
 	binary := o.Flags.JxBinary
 	args := cluster.Args
-	args = append(args, "--cluster-name", cluster.Name)
+
+	if cluster.Terraform {
+		// use the cluster name as the organisation name
+		args = append(args, "--organisation-name", cluster.Name)
+		args = append(args, "--cluster-name", "dev")
+	} else {
+		args = append(args, "--cluster-name", cluster.Name)
+	}
+
+	if cluster.Terraform {
+		// use the cluster name as the organisation name
+		args = append(args, "--organisation-name", cluster.Name)
+	}
 
 	if util.StringArrayIndex(args, "-b") < 0 && util.StringArrayIndex(args, "--batch-mode") < 0 {
 		args = append(args, "--batch-mode")
@@ -557,6 +589,10 @@ func (o *StepBDDOptions) createCluster(cluster *bdd.CreateCluster) error {
 		cluster.Labels = addLabel(cluster.Labels, "branch", branch)
 
 		args = append(args, "--labels", cluster.Labels)
+	}
+
+	if o.Flags.BaseDomain != "" {
+		args = append(args, "--domain", cluster.Name+"."+o.Flags.BaseDomain)
 	}
 
 	gitProviderURL := o.gitProviderUrl()
@@ -604,7 +640,7 @@ func (o *StepBDDOptions) createCluster(cluster *bdd.CreateCluster) error {
 		safeArgs = append(safeArgs, "--default-admin-password", "**************¬")
 	}
 
-	log.Infof("running command: %s\n", util.ColorInfo(fmt.Sprintf("%s %s", binary, strings.Join(safeArgs, " "))))
+	log.Logger().Infof("running command: %s", util.ColorInfo(fmt.Sprintf("%s %s", binary, strings.Join(safeArgs, " "))))
 
 	// lets not log any sensitive command line arguments
 	e := exec.Command(binary, args...)
@@ -616,7 +652,7 @@ func (o *StepBDDOptions) createCluster(cluster *bdd.CreateCluster) error {
 	os.Setenv("CHART_REPOSITORY", kube.DefaultChartMuseumURL)
 	err := e.Run()
 	if err != nil {
-		log.Errorf("Error: Command failed  %s %s\n", binary, strings.Join(safeArgs, " "))
+		log.Logger().Errorf("Error: Command failed  %s %s", binary, strings.Join(safeArgs, " "))
 	}
 	return err
 }
@@ -638,6 +674,6 @@ func (o *StepBDDOptions) getVersion() (string, error) {
 	if err != nil {
 		return version, errors.Wrapf(err, "failed to load jenkins-x-platform version from dir %s", dir)
 	}
-	log.Infof("loaded version %s from Makefile in directory %s\n\n", util.ColorInfo(version), util.ColorInfo(dir))
+	log.Logger().Infof("loaded version %s from Makefile in directory %s\n", util.ColorInfo(version), util.ColorInfo(dir))
 	return version, nil
 }

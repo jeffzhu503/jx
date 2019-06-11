@@ -18,6 +18,8 @@ approvers:
 - warrenbailey
 - cagiti
 - dgozalo
+- joseblas
+- macox
 reviewers:
 - rawlingsj
 - jstrachan
@@ -39,3 +41,5 @@ reviewers:
 - warrenbailey
 - cagiti
 - dgozalo
+- joseblas
+- macox

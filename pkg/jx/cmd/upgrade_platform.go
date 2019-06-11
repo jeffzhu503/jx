@@ -5,6 +5,7 @@ import (
 	"github.com/jenkins-x/jx/pkg/cloud"
 	"github.com/jenkins-x/jx/pkg/config"
 	configio "github.com/jenkins-x/jx/pkg/io"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	survey "gopkg.in/AlecAivazis/survey.v1"
 	"sigs.k8s.io/yaml"
 
@@ -72,11 +73,11 @@ func NewCmdUpgradePlatform(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Namespace, "namespace", "", "", "The Namespace to promote to.")
-	cmd.Flags().StringVarP(&options.ReleaseName, "name", "n", JenkinsXPlatformRelease, "The release name.")
+	cmd.Flags().StringVarP(&options.ReleaseName, "name", "n", opts.JenkinsXPlatformRelease, "The release name.")
 	cmd.Flags().StringVarP(&options.Chart, "chart", "c", "jenkins-x/jenkins-x-platform", "The Chart to upgrade.")
 	cmd.Flags().StringVarP(&options.Version, "version", "v", "", "The specific platform version to upgrade to.")
 	cmd.Flags().StringVarP(&options.Set, "set", "s", "", "The helm parameters to pass in while upgrading, separated by comma, e.g. key1=val1,key2=val2.")
@@ -121,7 +122,7 @@ func (o *UpgradePlatformOptions) Run() error {
 	}
 
 	if "" == settings.KubeProvider {
-		log.Warnf("Unable to determine provider from team settings")
+		log.Logger().Warnf("Unable to determine provider from team settings")
 
 		provider := ""
 
@@ -142,7 +143,7 @@ func (o *UpgradePlatformOptions) Run() error {
 		}
 	}
 
-	log.Infof("Using provider '%s' from team settings\n", util.ColorInfo(settings.KubeProvider))
+	log.Logger().Infof("Using provider '%s' from team settings", util.ColorInfo(settings.KubeProvider))
 
 	wrkDir := ""
 
@@ -176,11 +177,11 @@ func (o *UpgradePlatformOptions) Run() error {
 	}
 
 	if targetVersion != currentVersion {
-		log.Infof("Upgrading platform from version %s to version %s\n", util.ColorInfo(currentVersion), util.ColorInfo(targetVersion))
+		log.Logger().Infof("Upgrading platform from version %s to version %s", util.ColorInfo(currentVersion), util.ColorInfo(targetVersion))
 	} else if o.AlwaysUpgrade {
-		log.Infof("Rerunning platform version %s\n", util.ColorInfo(targetVersion))
+		log.Logger().Infof("Rerunning platform version %s", util.ColorInfo(targetVersion))
 	} else {
-		log.Infof("Already installed platform version %s. Skipping upgrade process.\n", util.ColorInfo(targetVersion))
+		log.Logger().Infof("Already installed platform version %s. Skipping upgrade process.", util.ColorInfo(targetVersion))
 		return nil
 	}
 
@@ -252,13 +253,13 @@ func (o *UpgradePlatformOptions) Run() error {
 		return errors.Wrapf(err, "unable to remove %s if exist", configFileName)
 	}
 
-	log.Infof("Creating %s from %s\n", util.ColorInfo(adminSecretsFileName), util.ColorInfo(opts.JXInstallConfig))
+	log.Logger().Infof("Creating %s from %s", util.ColorInfo(adminSecretsFileName), util.ColorInfo(opts.JXInstallConfig))
 	err = ioutil.WriteFile(adminSecretsFileName, oldSecret.Data[opts.AdminSecretsFile], 0644)
 	if err != nil {
 		return errors.Wrapf(err, "failed to write the config file %s", adminSecretsFileName)
 	}
 
-	o.Debugf("%s from %s is %s\n", opts.AdminSecretsFile, opts.JXInstallConfig, oldSecret.Data[opts.AdminSecretsFile])
+	log.Logger().Debugf("%s from %s is %s", opts.AdminSecretsFile, opts.JXInstallConfig, oldSecret.Data[opts.AdminSecretsFile])
 
 	if o.UpdateSecrets {
 		// load admin secrets service from adminSecretsFileName
@@ -270,7 +271,7 @@ func (o *UpgradePlatformOptions) Run() error {
 		o.AdminSecretsService.NewMavenSettingsXML()
 		adminSecrets := &o.AdminSecretsService.Secrets
 
-		o.Debugf("Rewriting secrets file to %s\n", util.ColorInfo(adminSecretsFileName))
+		log.Logger().Debugf("Rewriting secrets file to %s", util.ColorInfo(adminSecretsFileName))
 		err = configStore.WriteObject(adminSecretsFileName, adminSecrets)
 		if err != nil {
 			return errors.Wrapf(err, "writing the admin secrets in the secrets file '%s'", adminSecretsFileName)
@@ -290,10 +291,10 @@ func (o *UpgradePlatformOptions) Run() error {
 			return errors.Wrapf(err, "unable to save admin secrets to kubernetes secret: %s", opts.JXInstallConfig)
 		}
 
-		o.Debugf("Saved admin secrets to Kubernetes secret %s\n", util.ColorInfo(opts.JXInstallConfig))
+		log.Logger().Debugf("Saved admin secrets to Kubernetes secret %s", util.ColorInfo(opts.JXInstallConfig))
 	}
 
-	log.Infof("Creating %s from %s\n", util.ColorInfo(configFileName), util.ColorInfo(opts.JXInstallConfig))
+	log.Logger().Infof("Creating %s from %s", util.ColorInfo(configFileName), util.ColorInfo(opts.JXInstallConfig))
 	err = ioutil.WriteFile(configFileName, oldSecret.Data[opts.ExtraValuesFile], 0644)
 	if err != nil {
 		return errors.Wrapf(err, "failed to write the config file %s", configFileName)
@@ -305,7 +306,7 @@ func (o *UpgradePlatformOptions) Run() error {
 	}
 
 	if sopsFileExists {
-		log.Infof("Attempting to decrypt secrets file %s\n", util.ColorInfo(cloudEnvironmentSecretsLocation))
+		log.Logger().Infof("Attempting to decrypt secrets file %s", util.ColorInfo(cloudEnvironmentSecretsLocation))
 		// need to decrypt secrets now
 		err = o.Helm().DecryptSecrets(cloudEnvironmentSecretsLocation)
 		if err != nil {
@@ -319,7 +320,7 @@ func (o *UpgradePlatformOptions) Run() error {
 		}
 
 		if decryptedSecretsFile {
-			log.Infof("Successfully decrypted %s\n", util.ColorInfo(cloudEnvironmentSecretsDecryptedLocation))
+			log.Logger().Infof("Successfully decrypted %s", util.ColorInfo(cloudEnvironmentSecretsDecryptedLocation))
 			cloudEnvironmentSecretsLocation = cloudEnvironmentSecretsDecryptedLocation
 		}
 	}
@@ -330,7 +331,7 @@ func (o *UpgradePlatformOptions) Run() error {
 	}
 
 	if invalidFormat {
-		log.Warnf("We have detected that the %s file has an invalid format", adminSecretsFileName)
+		log.Logger().Warnf("We have detected that the %s file has an invalid format", adminSecretsFileName)
 
 		confirm := false
 		prompt := &survey.Confirm{
@@ -345,7 +346,7 @@ func (o *UpgradePlatformOptions) Run() error {
 				return errors.Wrap(err, "unable to repair adminSecrets.yaml")
 			}
 		} else {
-			log.Error("Aborting upgrade due to invalid adminSecrets.yaml")
+			log.Logger().Error("Aborting upgrade due to invalid adminSecrets.yaml")
 			return nil
 		}
 	}
@@ -363,7 +364,7 @@ func (o *UpgradePlatformOptions) Run() error {
 	}
 
 	for _, v := range valueFiles {
-		o.Debugf("Adding values file %s\n", util.ColorInfo(v))
+		log.Logger().Debugf("Adding values file %s", util.ColorInfo(v))
 	}
 
 	helmOptions := helm.InstallChartOptions{
@@ -402,7 +403,7 @@ func (o *UpgradePlatformOptions) removeFileIfExists(fileName string) error {
 		return errors.Wrapf(err, "unable to determine if %s exist", fileName)
 	}
 	if fileNameExists {
-		o.Debugf("Removing values file %s\n", util.ColorInfo(fileName))
+		log.Logger().Debugf("Removing values file %s", util.ColorInfo(fileName))
 		err = os.Remove(fileName)
 		if err != nil {
 			return errors.Wrapf(err, "failed to remove %s", fileName)
@@ -457,14 +458,14 @@ func (o *UpgradePlatformOptions) repairAdminSecrets(fileName string) error {
 func (o *UpgradePlatformOptions) upgradePlatformViaGitOps(devEnv *v1.Environment, targetVersion string, versionsDir string, configStore configio.ConfigStore) error {
 	uopts := &UpgradeAppsOptions{}
 	uopts.CommonOptions = o.CommonOptions
-	uopts.ReleaseName = JenkinsXPlatformRelease
+	uopts.ReleaseName = opts.JenkinsXPlatformRelease
 	uopts.GitOps = true
 	uopts.Version = targetVersion
 	uopts.Repo = kube.DefaultChartMuseumURL
 	uopts.HelmUpdate = true
 
 	//opts.Chart = JenkinsXPlatformChartName
-	uopts.Args = []string{JenkinsXPlatformChartName}
+	uopts.Args = []string{opts.JenkinsXPlatformChartName}
 
 	return uopts.Run()
 }

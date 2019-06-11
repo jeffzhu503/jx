@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/util"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -45,7 +47,7 @@ func NewCmdStatus(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -58,9 +60,9 @@ func (o *StatusOptions) Run() error {
 	client, namespace, err := o.KubeClientAndNamespace()
 	if err != nil {
 
-		log.Warn("Unable to connect to Kubernetes cluster -  is one running ?")
-		log.Warn("you could try: jx create cluster - e.g: " + createClusterExample + "\n\n")
-		log.Warn(createClusterLong)
+		log.Logger().Warn("Unable to connect to Kubernetes cluster -  is one running ?")
+		log.Logger().Warn("you could try: jx create cluster - e.g: " + createClusterExample + "\n")
+		log.Logger().Warn(createClusterLong)
 
 		return err
 	}
@@ -70,27 +72,27 @@ func (o *StatusOptions) Run() error {
 	 */
 	clusterStatus, err := kube.GetClusterStatus(client, "", o.Verbose)
 	if err != nil {
-		log.Error("Failed to get cluster status " + err.Error() + " \n")
+		log.Logger().Error("Failed to get cluster status " + err.Error() + " ")
 		return err
 	}
 
 	deployList, err := client.AppsV1().Deployments(namespace).List(metav1.ListOptions{})
 	if err != nil {
-		log.Error("Failed to get deployed  status " + err.Error() + " \n")
+		log.Logger().Error("Failed to get deployed  status " + err.Error() + " ")
 		return err
 	}
 
 	if deployList == nil || len(deployList.Items) == 0 {
-		log.Warnf("Unable to find JX components in %s", clusterStatus.Info())
-		log.Info("you could try: " + instalExample + "\n\n")
-		log.Info(instalLong)
+		log.Logger().Warnf("Unable to find JX components in %s", clusterStatus.Info())
+		log.Logger().Info("you could try: " + instalExample + "\n")
+		log.Logger().Info(instalLong)
 		return fmt.Errorf("no deployments found in namespace %s", namespace)
 	}
 
 	for _, d := range deployList.Items {
 		err = kube.WaitForDeploymentToBeReady(client, d.Name, namespace, 5*time.Second)
 		if err != nil {
-			log.Warnf("%s: jx deployment %s not ready in namespace %s", clusterStatus.Info(), d.Name, namespace)
+			log.Logger().Warnf("%s: jx deployment %s not ready in namespace %s", clusterStatus.Info(), d.Name, namespace)
 			return err
 		}
 	}
@@ -98,9 +100,9 @@ func (o *StatusOptions) Run() error {
 	resourceStr := clusterStatus.CheckResource()
 
 	if resourceStr != "" {
-		log.Warnf("Jenkins X installed for %s.\n%s\n", clusterStatus.Info(), util.ColorWarning(resourceStr))
+		log.Logger().Warnf("Jenkins X installed for %s.\n%s", clusterStatus.Info(), util.ColorWarning(resourceStr))
 	} else {
-		log.Successf("Jenkins X checks passed for %s.\n", clusterStatus.Info())
+		log.Logger().Infof("Jenkins X checks passed for %s.", clusterStatus.Info())
 	}
 
 	return nil

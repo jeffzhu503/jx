@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
@@ -50,7 +52,7 @@ func NewCmdCreateTeam(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -107,6 +109,6 @@ func (o *CreateTeamOptions) Run() error {
 	if err != nil {
 		return fmt.Errorf("Failed to create Team %s: %s", name, err)
 	}
-	log.Infof("Created Team: %s\n", util.ColorInfo(name))
+	log.Logger().Infof("Created Team: %s", util.ColorInfo(name))
 	return nil
 }

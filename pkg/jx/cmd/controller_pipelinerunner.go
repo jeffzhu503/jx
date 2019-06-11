@@ -8,6 +8,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/step/create"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/step/git"
+
 	"github.com/jenkins-x/jx/pkg/jenkinsfile"
 	"github.com/jenkins-x/jx/pkg/log"
 
@@ -32,10 +36,10 @@ const (
 // ControllerPipelineRunnerOptions holds the command line arguments
 type ControllerPipelineRunnerOptions struct {
 	*opts.CommonOptions
-	BindAddress           string
-	Path                  string
-	Port                  int
-	NoGitCredeentialsInit bool
+	BindAddress          string
+	Path                 string
+	Port                 int
+	NoGitCredentialsInit bool
 }
 
 // PipelineRunRequest the request to trigger a pipeline run
@@ -83,7 +87,7 @@ func NewCmdControllerPipelineRunner(commonOpts *opts.CommonOptions) *cobra.Comma
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -93,13 +97,13 @@ func NewCmdControllerPipelineRunner(commonOpts *opts.CommonOptions) *cobra.Comma
 	cmd.Flags().StringVarP(&options.Path, "path", "p", "/",
 		"The path to listen on for requests to trigger a pipeline run.")
 	cmd.Flags().StringVarP(&options.ServiceAccount, "service-account", "", "tekton-bot", "The Kubernetes ServiceAccount to use to run the pipeline")
-	cmd.Flags().BoolVarP(&options.NoGitCredeentialsInit, "no-git-init", "", false, "Disables checking we have setup git credentials on startup")
+	cmd.Flags().BoolVarP(&options.NoGitCredentialsInit, "no-git-init", "", false, "Disables checking we have setup git credentials on startup")
 	return cmd
 }
 
 // Run will implement this command
 func (o *ControllerPipelineRunnerOptions) Run() error {
-	if !o.NoGitCredeentialsInit {
+	if !o.NoGitCredentialsInit {
 		err := o.InitGitConfigAndUser()
 		if err != nil {
 			return err
@@ -109,19 +113,19 @@ func (o *ControllerPipelineRunnerOptions) Run() error {
 	mux.Handle(o.Path, http.HandlerFunc(o.pipelineRunMethods))
 	mux.Handle(HealthPath, http.HandlerFunc(o.health))
 	mux.Handle(ReadyPath, http.HandlerFunc(o.ready))
-	log.Infof("Waiting for dynamic Tekton Pipelines at http://%s:%d%s", o.BindAddress, o.Port, o.Path)
+	log.Logger().Infof("Waiting for dynamic Tekton Pipelines at http://%s:%d%s", o.BindAddress, o.Port, o.Path)
 	return http.ListenAndServe(":"+strconv.Itoa(o.Port), mux)
 }
 
 // health returns either HTTP 204 if the service is healthy, otherwise nothing ('cos it's dead).
 func (o *ControllerPipelineRunnerOptions) health(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Health check")
+	log.Logger().Debug("Health check")
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // ready returns either HTTP 204 if the service is ready to serve requests, otherwise HTTP 503.
 func (o *ControllerPipelineRunnerOptions) ready(w http.ResponseWriter, r *http.Request) {
-	log.Debug("Ready check")
+	log.Logger().Debug("Ready check")
 	if o.isReady() {
 		w.WriteHeader(http.StatusNoContent)
 	} else {
@@ -135,11 +139,11 @@ func (o *ControllerPipelineRunnerOptions) pipelineRunMethods(w http.ResponseWrit
 	case http.MethodGet:
 		fmt.Fprintf(w, "Please POST JSON to this endpoint!\n")
 	case http.MethodHead:
-		log.Info("HEAD Todo...")
+		log.Logger().Info("HEAD Todo...")
 	case http.MethodPost:
 		o.startPipelineRun(w, r)
 	default:
-		log.Errorf("Unsupported method %s for %s", r.Method, o.Path)
+		log.Logger().Errorf("Unsupported method %s for %s", r.Method, o.Path)
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 	}
 }
@@ -148,7 +152,7 @@ func (o *ControllerPipelineRunnerOptions) pipelineRunMethods(w http.ResponseWrit
 func (o *ControllerPipelineRunnerOptions) startPipelineRun(w http.ResponseWriter, r *http.Request) {
 	err := o.stepGitCredentials()
 	if err != nil {
-		log.Warn(err.Error())
+		log.Logger().Warn(err.Error())
 	}
 	arguments := &PipelineRunRequest{}
 	data, err := ioutil.ReadAll(r.Body)
@@ -165,9 +169,7 @@ func (o *ControllerPipelineRunnerOptions) startPipelineRun(w http.ResponseWriter
 		o.returnError(err, "could not parse body: "+err.Error(), w, r)
 		return
 	}
-	if o.Verbose {
-		log.Infof("got payload %#v", arguments)
-	}
+	log.Logger().Debugf("got payload %#v", arguments)
 	pj := arguments.ProwJobSpec
 
 	var revision string
@@ -178,11 +180,12 @@ func (o *ControllerPipelineRunnerOptions) startPipelineRun(w http.ResponseWriter
 		return
 	}
 
-	// lets change this to support new pipelineresource type that handles batches
-	if len(pj.Refs.Pulls) > 0 {
+	// Only if there is one Pull in Refs, it's a PR build so we are going to pass it
+	if len(pj.Refs.Pulls) == 1 {
 		revision = pj.Refs.Pulls[0].SHA
 		prNumber = strconv.Itoa(pj.Refs.Pulls[0].Number)
 	} else {
+		//Otherwise it's a Master / Batch build, and we handle it later
 		revision = pj.Refs.BaseSHA
 	}
 
@@ -201,7 +204,7 @@ func (o *ControllerPipelineRunnerOptions) startPipelineRun(w http.ResponseWriter
 		revision = "master"
 	}
 
-	pr := &StepCreateTaskOptions{}
+	pr := &create.StepCreateTaskOptions{}
 	if pj.Type == prowapi.PostsubmitJob {
 		pr.PipelineKind = jenkinsfile.PipelineKindRelease
 	} else {
@@ -238,7 +241,7 @@ func (o *ControllerPipelineRunnerOptions) startPipelineRun(w http.ResponseWriter
 		pr.CustomEnvs = append(pr.CustomEnvs, fmt.Sprintf("%s=%s", key, value))
 	}
 
-	log.Infof("triggering pipeline for repo %s branch %s revision %s context %s\n", sourceURL, branch, revision, pj.Context)
+	log.Logger().Infof("triggering pipeline for repo %s branch %s revision %s context %s", sourceURL, branch, revision, pj.Context)
 
 	err = pr.Run()
 	if err != nil {
@@ -285,12 +288,12 @@ func (o *ControllerPipelineRunnerOptions) marshalPayload(w http.ResponseWriter, 
 
 func (o *ControllerPipelineRunnerOptions) onError(err error) {
 	if err != nil {
-		log.Errorf("%v", err)
+		log.Logger().Errorf("%v", err)
 	}
 }
 
 func (o *ControllerPipelineRunnerOptions) returnError(err error, message string, w http.ResponseWriter, r *http.Request) {
-	log.Errorf("%v %s", err, message)
+	log.Logger().Errorf("%v %s", err, message)
 
 	o.onError(err)
 	w.WriteHeader(400)
@@ -298,11 +301,11 @@ func (o *ControllerPipelineRunnerOptions) returnError(err error, message string,
 }
 
 func (o *ControllerPipelineRunnerOptions) stepGitCredentials() error {
-	if !o.NoGitCredeentialsInit {
+	if !o.NoGitCredentialsInit {
 		copy := *o.CommonOptions
 		copy.BatchMode = true
-		gsc := &StepGitCredentialsOptions{
-			StepOptions: StepOptions{
+		gsc := &git.StepGitCredentialsOptions{
+			StepOptions: opts.StepOptions{
 				CommonOptions: &copy,
 			},
 		}

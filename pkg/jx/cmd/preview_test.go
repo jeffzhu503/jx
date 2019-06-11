@@ -1,6 +1,7 @@
 package cmd_test
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/cmd_test_helpers"
 	"os"
 	"testing"
 
@@ -13,10 +14,7 @@ import (
 
 // Constants for some test data to be used.
 const (
-	application = "test-app"
-	releaseName = "test-app-release-name"
-	name        = "test-app-name"
-	namespace   = "jx"
+	namespace = "jx"
 )
 
 func TestGetPreviewValuesConfig(t *testing.T) {
@@ -78,7 +76,7 @@ preview:
 		},
 	}
 	co := &opts.CommonOptions{}
-	cmd.ConfigureTestOptions(co, gits_test.NewMockGitter(), helm_test.NewMockHelmer())
+	cmd_test_helpers.ConfigureTestOptions(co, gits_test.NewMockGitter(), helm_test.NewMockHelmer())
 
 	for i, test := range tests {
 		for k, v := range test.env {
@@ -86,7 +84,7 @@ preview:
 		}
 
 		test.opts.CommonOptions = co
-		config, err := test.opts.GetPreviewValuesConfig(test.domain)
+		config, err := test.opts.GetPreviewValuesConfig(nil, test.domain)
 		if err != nil {
 			t.Errorf("[%d] got unexpected err: %v", i, err)
 			continue

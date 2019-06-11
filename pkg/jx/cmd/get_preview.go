@@ -3,11 +3,12 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
-	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/spf13/cobra"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -21,8 +22,8 @@ type GetPreviewOptions struct {
 
 var (
 	getPreviewLong = templates.LongDesc(`
-		Display one or more environments.
-`)
+		Display one or more preview environments.
+` + opts.SeeAlsoText("jx get env"))
 
 	getPreviewExample = templates.Examples(`
 		# List all preview environments
@@ -53,7 +54,7 @@ func NewCmdGetPreview(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -90,7 +91,7 @@ func (o *GetPreviewOptions) CurrentPreviewUrl() error {
 	}
 	for _, env := range envList.Items {
 		if env.Spec.Kind == v1.EnvironmentKindTypePreview && env.Name == name {
-			log.Info(env.Spec.PreviewGitSpec.ApplicationURL)
+			fmt.Printf("%s", env.Spec.PreviewGitSpec.ApplicationURL)
 			return nil
 		}
 	}

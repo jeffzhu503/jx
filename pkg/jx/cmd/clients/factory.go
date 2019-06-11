@@ -125,9 +125,12 @@ func (f *factory) CreateCustomJenkinsClient(kubeClient kubernetes.Interface, ns 
 // GetJenkinsURL gets the Jenkins URL for the given namespace
 func (f *factory) GetJenkinsURL(kubeClient kubernetes.Interface, ns string) (string, error) {
 	// lets find the Kubernetes service
-	client, ns, err := f.CreateKubeClient()
+	client, curNS, err := f.CreateKubeClient()
 	if err != nil {
 		return "", errors.Wrap(err, "failed to create the kube client")
+	}
+	if ns == "" {
+		ns = curNS
 	}
 	url, err := services.FindServiceURL(client, ns, kube.ServiceJenkins)
 	if err != nil {
@@ -711,7 +714,7 @@ func (f *factory) IsInCDPipeline() bool {
 	// TODO should we let RBAC decide if we can see the Secrets in the dev namespace?
 	// or we should test if we are in the cluster and get the current ServiceAccount name?
 	buildNumber := builds.GetBuildNumber()
-	return buildNumber != ""
+	return buildNumber != "" || os.Getenv("PIPELINE_KIND") != ""
 }
 
 // function to tell if we are running incluster
@@ -761,7 +764,7 @@ func (f *factory) CreateHelm(verbose bool,
 		featureFlag = "no-tiller-server"
 	}
 	if verbose {
-		log.Infof("Using helmBinary %s with feature flag: %s\n", util.ColorInfo(helmBinary), util.ColorInfo(featureFlag))
+		log.Logger().Infof("Using helmBinary %s with feature flag: %s", util.ColorInfo(helmBinary), util.ColorInfo(featureFlag))
 	}
 	helmCLI := helm.NewHelmCLI(helmBinary, helm.V2, "", verbose)
 	var h helm.Helmer = helmCLI

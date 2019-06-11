@@ -4,6 +4,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/helm"
 
 	"github.com/jenkins-x/jx/pkg/kube/services"
@@ -71,7 +73,7 @@ func NewCmdCreateAddonPipelineEvents(commonOpts *opts.CommonOptions) *cobra.Comm
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -102,7 +104,7 @@ func (o *CreateAddonPipelineEventsOptions) Run() error {
 		return fmt.Errorf("cannot find a dev team namespace to get existing exposecontroller config from. %v", err)
 	}
 
-	log.Infof("found dev namespace %s\n", devNamespace)
+	log.Logger().Infof("found dev namespace %s", devNamespace)
 
 	setValues := strings.Split(o.SetValues, ",")
 	helmOptions := helm.InstallChartOptions{
@@ -117,13 +119,13 @@ func (o *CreateAddonPipelineEventsOptions) Run() error {
 		return fmt.Errorf("elasticsearch deployment failed: %v", err)
 	}
 
-	log.Info("waiting for elasticsearch deployment to be ready, this can take a few minutes\n")
+	log.Logger().Info("waiting for elasticsearch deployment to be ready, this can take a few minutes")
 
 	err = kube.WaitForDeploymentToBeReady(client, esDeploymentName, o.Namespace, 10*time.Minute)
 	if err != nil {
 		return err
 	}
-	log.Info("waiting for kibana deployment to be ready, this can take a few minutes\n")
+	log.Logger().Info("waiting for kibana deployment to be ready, this can take a few minutes")
 
 	err = kube.WaitForDeploymentToBeReady(client, kibanaDeploymentName, o.Namespace, 10*time.Minute)
 	if err != nil {
@@ -197,7 +199,7 @@ func (o *CreateAddonPipelineEventsOptions) Run() error {
 		}
 	}
 
-	log.Successf("kibana is available and running %s\n", kIng)
+	log.Logger().Infof("kibana is available and running %s", kIng)
 	return nil
 }
 func (o *CreateAddonPipelineEventsOptions) addExposecontrollerAnnotations(serviceName string) error {

@@ -11,7 +11,7 @@ type Helmer interface {
 	RemoveRepo(repo string) error
 	ListRepos() (map[string]string, error)
 	UpdateRepo() error
-	IsRepoMissing(URL string) (bool, error)
+	IsRepoMissing(URL string) (bool, string, error)
 	RemoveRequirementsLock() error
 	BuildDependency() error
 	InstallChart(chart string, releaseName string, ns string, version string, timeout int,
@@ -27,7 +27,7 @@ type Helmer interface {
 	PackageChart() error
 	StatusRelease(ns string, releaseName string) error
 	StatusReleaseWithOutput(ns string, releaseName string, format string) (string, error)
-	Lint() (string, error)
+	Lint(valuesFiles []string) (string, error)
 	Version(tls bool) (string, error)
 	SearchCharts(filter string) ([]ChartSummary, error)
 	SetHost(host string)

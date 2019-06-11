@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/jenkinsfile"
 	"github.com/jenkins-x/jx/pkg/kube/serviceaccount"
@@ -66,6 +68,7 @@ type CreateEnvOptions struct {
 	BranchPattern          string
 	Vault                  bool
 	PullSecrets            string
+	Update                 bool
 }
 
 // NewCmdCreateEnv creates a command object for the "create" command
@@ -89,13 +92,14 @@ func NewCmdCreateEnv(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	//addCreateAppFlags(cmd, &options.CreateOptions)
 
 	cmd.Flags().StringVarP(&options.Options.Name, kube.OptionName, "n", "", "The Environment resource name. Must follow the Kubernetes name conventions like Services, Namespaces")
 	cmd.Flags().StringVarP(&options.Options.Spec.Label, "label", "l", "", "The Environment label which is a descriptive string like 'Production' or 'Staging'")
+	cmd.Flags().BoolVarP(&options.Update, "update", "u", false, "Update environment if already exists")
 
 	cmd.Flags().StringVarP(&options.Options.Spec.Namespace, kube.OptionNamespace, "s", "", "The Kubernetes namespace for the Environment")
 	cmd.Flags().StringVarP(&options.Options.Spec.Cluster, "cluster", "c", "", "The Kubernetes cluster for the Environment. If blank and a namespace is specified assumes the current cluster")
@@ -184,7 +188,7 @@ func (o *CreateEnvOptions) Run() error {
 
 	env := v1.Environment{}
 	o.Options.Spec.PromotionStrategy = v1.PromotionStrategyType(o.PromotionStrategy)
-	gitProvider, err := kube.CreateEnvironmentSurvey(o.BatchMode, authConfigSvc, devEnv, &env, &o.Options, o.ForkEnvironmentGitRepo, ns,
+	gitProvider, err := kube.CreateEnvironmentSurvey(o.BatchMode, authConfigSvc, devEnv, &env, &o.Options, o.Update, o.ForkEnvironmentGitRepo, ns,
 		jxClient, kubeClient, envDir, &o.GitRepositoryOptions, o.HelmValuesConfig, o.Prefix, o.Git(), o.ResolveChartMuseumURL, o.In, o.Out, o.Err)
 	if err != nil {
 		return err
@@ -209,7 +213,7 @@ func (o *CreateEnvOptions) Run() error {
 		}
 		return nil
 	})
-	log.Infof("Created environment %s\n", util.ColorInfo(env.Name))
+	log.Logger().Infof("Created environment %s", util.ColorInfo(env.Name))
 
 	if !o.GitOpsMode {
 		err = kube.EnsureEnvironmentNamespaceSetup(kubeClient, jxClient, &env, ns)
@@ -225,18 +229,18 @@ func (o *CreateEnvOptions) Run() error {
 			err = kube.EnsureEnvironmentNamespaceSetup(kubeClient, jxClient, &env, env.Spec.Namespace)
 			if err != nil {
 				// This can happen if, for whatever reason, the namespace takes a while to create. That shouldn't stop the entire process though
-				log.Warnf("Namespace %s does not exist for jx to patch the service account for, you should patch the service account manually with your pull secret(s) \n", env.Spec.Namespace)
+				log.Logger().Warnf("Namespace %s does not exist for jx to patch the service account for, you should patch the service account manually with your pull secret(s) ", env.Spec.Namespace)
 			}
 		}
 		imagePullSecrets := strings.Fields(o.PullSecrets)
 		saName := "default"
-		//log.Infof("Patching the secrets %s for the service account %s\n", imagePullSecrets, saName)
+		//log.Logger().Infof("Patching the secrets %s for the service account %s\n", imagePullSecrets, saName)
 		err = serviceaccount.PatchImagePullSecrets(kubeClient, env.Spec.Namespace, saName, imagePullSecrets)
 		if err != nil {
 			return fmt.Errorf("Failed to add pull secrets %s to service account %s in namespace %s: %v", imagePullSecrets, saName, env.Spec.Namespace, err)
 		} else {
-			log.Infof("Service account \"%s\" in namespace \"%s\" configured to use pull secret(s) %s \n", saName, env.Spec.Namespace, imagePullSecrets)
-			log.Infof("Pull secret(s) must exist in namespace %s before deploying your applications in this environment \n", env.Spec.Namespace)
+			log.Logger().Infof("Service account \"%s\" in namespace \"%s\" configured to use pull secret(s) %s ", saName, env.Spec.Namespace, imagePullSecrets)
+			log.Logger().Infof("Pull secret(s) must exist in namespace %s before deploying your applications in this environment ", env.Spec.Namespace)
 		}
 	}
 
@@ -257,7 +261,7 @@ func (o *CreateEnvOptions) Run() error {
 func (o *CreateEnvOptions) RegisterEnvironment(env *v1.Environment, gitProvider gits.GitProvider, authConfigSvc auth.ConfigService) error {
 	gitURL := env.Spec.Source.URL
 	if gitURL == "" {
-		log.Warnf("environment %s does not have a git source URL\n", env.Name)
+		log.Logger().Warnf("environment %s does not have a git source URL", env.Name)
 		return nil
 	}
 	gitInfo, err := gits.ParseGitURL(gitURL)

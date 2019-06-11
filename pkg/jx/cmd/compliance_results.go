@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/heptio/sonobuoy/pkg/client"
 	"github.com/heptio/sonobuoy/pkg/client/results"
 	"github.com/heptio/sonobuoy/pkg/plugin/aggregation"
@@ -53,7 +55,7 @@ func NewCmdComplianceResults(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -73,7 +75,7 @@ func (o *ComplianceResultsOptions) Run() error {
 	}
 
 	if status.Status != aggregation.CompleteStatus && status.Status != aggregation.FailedStatus {
-		log.Info("Compliance results not ready. Run `jx compliance status` for status.")
+		log.Logger().Info("Compliance results not ready. Run `jx compliance status` for status.")
 		return nil
 	}
 
@@ -111,8 +113,8 @@ func (o *ComplianceResultsOptions) Run() error {
 
 	err = eg.Wait()
 	if err != nil {
-		log.Infof("No compliance results found. Use %s command to start the compliance tests.\n", util.ColorInfo("jx compliance run"))
-		log.Infof("You can watch the logs with %s command.\n", util.ColorInfo("jx compliance logs -f"))
+		log.Logger().Infof("No compliance results found. Use %s command to start the compliance tests.", util.ColorInfo("jx compliance run"))
+		log.Logger().Infof("You can watch the logs with %s command.", util.ColorInfo("jx compliance logs -f"))
 	}
 	return nil
 }

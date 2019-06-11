@@ -4,12 +4,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/ghodss/yaml"
+	survey "gopkg.in/AlecAivazis/survey.v1"
 
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/log"
-
-	"gopkg.in/AlecAivazis/survey.v1"
 
 	"github.com/jenkins-x/jx/pkg/extensions"
 
@@ -70,7 +71,7 @@ func NewCmdEditExtensionsRepository(commonOpts *opts.CommonOptions) *cobra.Comma
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.ExtensionsRepositoryUrl, optionExtensionsRepositoryUrl, "", "", "The extensions repository URL to use")
@@ -206,7 +207,7 @@ func (o *EditExtensionsRepositoryOptions) Run() error {
 						return err
 					}
 				} else {
-					err := o.AddHelmRepoIfMissing(current.Chart.Repo, current.Chart.RepoName, "", "")
+					_, err := o.AddHelmBinaryRepoIfMissing(current.Chart.Repo, current.Chart.RepoName, "", "")
 					if err != nil {
 						return err
 					}
@@ -260,13 +261,13 @@ func (o *EditExtensionsRepositoryOptions) Run() error {
 		} else {
 			repoUrl = fmt.Sprintf("https://%s", current.Chart.Repo)
 		}
-		err := o.AddHelmRepoIfMissing(repoUrl, current.Chart.RepoName, "", "")
+		_, err := o.AddHelmBinaryRepoIfMissing(repoUrl, current.Chart.RepoName, "", "")
 		if err != nil {
 			return err
 		}
 		msg = fmt.Sprintf("Chart %s in repo %s", util.ColorInfo(current.Chart.Name), util.ColorInfo(current.Chart.Repo))
 	}
-	log.Infof("Set Extensions Repository to %s\n", msg)
+	log.Logger().Infof("Set Extensions Repository to %s", msg)
 
 	return nil
 

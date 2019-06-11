@@ -3,6 +3,8 @@ package cmd
 import (
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/client/clientset/versioned"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
@@ -50,7 +52,7 @@ func NewCmdGetWorkflow(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Name, "name", "n", "", "The name of the workflow to display")
@@ -97,7 +99,7 @@ func (o *GetWorkflowOptions) getWorkflow(name string, jxClient versioned.Interfa
 		return err
 	}
 
-	log.Infof("Workflow: %s\n", workflow.Name)
+	log.Logger().Infof("Workflow: %s", workflow.Name)
 	lines := []*StepSummary{}
 	var lastSummary *StepSummary
 	for _, step := range workflow.Spec.Steps {
@@ -121,9 +123,9 @@ func (o *GetWorkflowOptions) getWorkflow(name string, jxClient versioned.Interfa
 	}
 	for i, summary := range lines {
 		if i > 0 {
-			log.Info("    |\n")
+			log.Logger().Info("    |")
 		}
-		log.Infof("%s to %s\n", summary.Action, strings.Join(summary.Resources, " + "))
+		log.Logger().Infof("%s to %s", summary.Action, strings.Join(summary.Resources, " + "))
 	}
 	return nil
 }

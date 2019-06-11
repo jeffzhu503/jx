@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/jenkins-x/jx/pkg/kube"
 
 	"github.com/spf13/cobra"
@@ -57,7 +59,7 @@ func NewCmdConsole(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.addConsoleFlags(cmd)
@@ -110,7 +112,7 @@ func (o *ConsoleOptions) Open(name string, label string) error {
 		svcURL, err = o.FindService(name)
 	}
 	if err != nil && name != "" {
-		log.Infof("If the app %s is running in a different environment you could try: %s\n", util.ColorInfo(name), util.ColorInfo("jx get applications"))
+		log.Logger().Infof("If the app %s is running in a different environment you could try: %s", util.ColorInfo(name), util.ColorInfo("jx get applications"))
 	}
 	if err != nil {
 		return err

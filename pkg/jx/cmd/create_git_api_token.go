@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/runner"
@@ -66,7 +68,7 @@ func NewCmdCreateGitToken(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	options.ServerFlags.AddGitServerFlags(cmd)
@@ -121,9 +123,9 @@ func (o *CreateGitTokenOptions) Run() error {
 		f := func(username string) error {
 			tokenUrl := gits.ProviderAccessTokenURL(server.Kind, server.URL, username)
 
-			log.Infof("Please generate an API Token for %s server %s\n", server.Kind, server.Label())
-			log.Infof("Click this URL %s\n\n", util.ColorInfo(tokenUrl))
-			log.Infof("Then COPY the token and enter in into the form below:\n\n")
+			log.Logger().Infof("Please generate an API Token for %s server %s", server.Kind, server.Label())
+			log.Logger().Infof("Click this URL %s\n", util.ColorInfo(tokenUrl))
+			log.Logger().Infof("Then COPY the token and enter in into the form below:\n")
 			return nil
 		}
 
@@ -145,11 +147,11 @@ func (o *CreateGitTokenOptions) Run() error {
 	if config.PipeLineUsername == userAuth.Username {
 		_, err = o.UpdatePipelineGitCredentialsSecret(server, userAuth)
 		if err != nil {
-			log.Warnf("Failed to update Jenkins X pipeline Git credentials secret: %v\n", err)
+			log.Logger().Warnf("Failed to update Jenkins X pipeline Git credentials secret: %v", err)
 		}
 	}
 
-	log.Infof("Created user %s API Token for Git server %s at %s\n",
+	log.Logger().Infof("Created user %s API Token for Git server %s at %s",
 		util.ColorInfo(o.Username), util.ColorInfo(server.Name), util.ColorInfo(server.URL))
 
 	return nil
@@ -169,7 +171,7 @@ func (o *CreateGitTokenOptions) tryFindAPITokenFromBrowser(tokenUrl string, user
 		ctxt, cancel = context.WithCancel(context.Background())
 	}
 	defer cancel()
-	log.Infof("Trying to generate an API token for user: %s\n", util.ColorInfo(userAuth.Username))
+	log.Logger().Infof("Trying to generate an API token for user: %s", util.ColorInfo(userAuth.Username))
 
 	c, err := o.createChromeClient(ctxt)
 	if err != nil {
@@ -200,7 +202,7 @@ func (o *CreateGitTokenOptions) tryFindAPITokenFromBrowser(tokenUrl string, user
 	if login {
 		o.captureScreenshot(ctxt, c, "screenshot-git-login.png", "//div")
 
-		log.Infof("logging in\n")
+		log.Logger().Infof("logging in")
 		err = c.Run(ctxt, chromedp.Tasks{
 			chromedp.WaitVisible("user_name", chromedp.ByID),
 			chromedp.SendKeys("user_name", userAuth.Username, chromedp.ByID),
@@ -213,7 +215,7 @@ func (o *CreateGitTokenOptions) tryFindAPITokenFromBrowser(tokenUrl string, user
 
 	o.captureScreenshot(ctxt, c, "screenshot-git-api-token.png", "//div")
 
-	log.Info("Generating new token")
+	log.Logger().Info("Generating new token")
 
 	tokenId := "jx-" + string(uuid.NewUUID())
 	generateNewTokenButtonSelector := "//div[normalize-space(text())='Generate New Token']"
@@ -238,7 +240,7 @@ func (o *CreateGitTokenOptions) tryFindAPITokenFromBrowser(tokenUrl string, user
 			break
 		}
 	}
-	log.Info("Found API Token")
+	log.Logger().Info("Found API Token")
 	if token != "" {
 		userAuth.ApiToken = token
 	}
@@ -266,7 +268,7 @@ func (o *CreateGitTokenOptions) createChromeClient(ctxt context.Context) (*chrom
 }
 
 func (o *CreateGitTokenOptions) captureScreenshot(ctxt context.Context, c *chromedp.CDP, screenshotFile string, selector interface{}, options ...chromedp.QueryOption) error {
-	log.Info("Creating a screenshot...")
+	log.Logger().Info("Creating a screenshot...")
 
 	var picture []byte
 	err := c.Run(ctxt, chromedp.Tasks{
@@ -276,13 +278,13 @@ func (o *CreateGitTokenOptions) captureScreenshot(ctxt context.Context, c *chrom
 	if err != nil {
 		return err
 	}
-	log.Info("Saving a screenshot...")
+	log.Logger().Info("Saving a screenshot...")
 
 	err = ioutil.WriteFile(screenshotFile, picture, util.DefaultWritePermissions)
 	if err != nil {
-		log.Fatal(err.Error())
+		log.Logger().Fatal(err.Error())
 	}
 
-	log.Infof("Saved screenshot: %s\n", util.ColorInfo(screenshotFile))
+	log.Logger().Infof("Saved screenshot: %s", util.ColorInfo(screenshotFile))
 	return err
 }

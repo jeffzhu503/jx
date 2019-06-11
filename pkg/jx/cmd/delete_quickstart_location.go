@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/gits"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -61,7 +63,7 @@ func NewCmdDeleteQuickstartLocation(commonOpts *opts.CommonOptions) *cobra.Comma
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.GitUrl, optionGitUrl, "u", gits.GitHubURL, "The URL of the Git service")
@@ -118,7 +120,7 @@ func (o *DeleteQuickstartLocationOptions) Run() error {
 		for i, l := range settings.QuickstartLocations {
 			if l.GitURL == o.GitUrl && l.Owner == o.Owner {
 				settings.QuickstartLocations = append(settings.QuickstartLocations[0:i], settings.QuickstartLocations[i+1:]...)
-				log.Infof("Removing quickstart git owner %s\n", util.ColorInfo(util.UrlJoin(l.GitURL, l.Owner)))
+				log.Logger().Infof("Removing quickstart git owner %s", util.ColorInfo(util.UrlJoin(l.GitURL, l.Owner)))
 				return nil
 			}
 		}

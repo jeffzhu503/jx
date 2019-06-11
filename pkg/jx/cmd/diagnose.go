@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/kube"
 
@@ -25,7 +26,7 @@ func NewCmdDiagnose(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Namespace, "namespace", "n", "", "The namespace to display the kube resources from. If left out, defaults to the current namespace")
@@ -42,7 +43,7 @@ func (o *DiagnoseOptions) Run() error {
 		}
 		ns = kube.CurrentNamespace(config)
 	}
-	log.Infof("Running in namespace: %s", util.ColorInfo(ns))
+	log.Logger().Infof("Running in namespace: %s", util.ColorInfo(ns))
 
 	err := printStatus(o, "Jenkins X Version", "jx", "version", "--no-version-check")
 	if err != nil {
@@ -73,8 +74,8 @@ func (o *DiagnoseOptions) Run() error {
 	if err != nil {
 		return err
 	}
-	log.Info("\nPlease visit https://jenkins-x.io/faq/issues/ for any known issues.")
-	log.Info("\nFinished printing diagnostic information.\n")
+	log.Logger().Info("\nPlease visit https://jenkins-x.io/faq/issues/ for any known issues.")
+	log.Logger().Info("\nFinished printing diagnostic information.")
 	return nil
 }
 
@@ -82,10 +83,10 @@ func (o *DiagnoseOptions) Run() error {
 func printStatus(o *DiagnoseOptions, header string, command string, options ...string) error {
 	output, err := o.GetCommandOutput("", command, options...)
 	if err != nil {
-		log.Errorf("Unable to get the %s", header)
+		log.Logger().Errorf("Unable to get the %s", header)
 		return err
 	}
 	// Print the output of the command, and add a little header at the top for formatting / readability
-	log.Infof("\n%s:\n %s\n", header, util.ColorInfo(output))
+	log.Logger().Infof("\n%s:\n %s", header, util.ColorInfo(output))
 	return nil
 }

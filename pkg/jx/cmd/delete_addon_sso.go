@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -50,7 +51,7 @@ func NewCmdDeleteAddonSSO(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringArrayVarP(&options.ReleaseNames, optionReleases, "r", defaultSsoReleaseNames, "The relese names of sso charts")
@@ -71,7 +72,7 @@ func (o *DeleteAddonSSOOptions) Run() error {
 		}
 	}
 
-	log.Infof("%s was succesfully deleted.\n", util.ColorInfo("sso addon"))
+	log.Logger().Infof("%s was succesfully deleted.", util.ColorInfo("sso addon"))
 
 	return nil
 }

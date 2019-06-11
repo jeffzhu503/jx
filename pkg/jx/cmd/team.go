@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 
 	"github.com/spf13/cobra"
 
@@ -11,6 +12,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/jenkins-x/jx/pkg/util"
+	"github.com/pkg/errors"
 )
 
 type TeamOptions struct {
@@ -50,7 +52,7 @@ func NewCmdTeam(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	return cmd
@@ -92,7 +94,7 @@ func (o *TeamOptions) Run() error {
 		newConfig := *config
 		ctx := kube.CurrentContext(config)
 		if ctx == nil {
-			return errNoContextDefined
+			return errors.New("there is no context defined in your Kubernetes configuration")
 		}
 		if ctx.Namespace == team {
 			return nil

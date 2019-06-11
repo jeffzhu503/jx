@@ -13,7 +13,7 @@ import (
 	"time"
 
 	randomdata "github.com/Pallinder/go-randomdata"
-	"github.com/alexflint/go-filemutex"
+	filemutex "github.com/alexflint/go-filemutex"
 	"github.com/blang/semver"
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/cloud"
@@ -88,14 +88,14 @@ func (o *CommonOptions) DoInstallMissingDependencies(install []string) error {
 	// install package managers first
 	for _, i := range install {
 		if i == "brew" {
-			log.Infof("Installing %s\n", util.ColorInfo(i))
+			log.Logger().Infof("Installing %s", util.ColorInfo(i))
 			o.InstallBrew()
 			break
 		}
 	}
 
 	for _, i := range install {
-		log.Infof("Installing %s\n", util.ColorInfo(i))
+		log.Logger().Infof("Installing %s", util.ColorInfo(i))
 		var err error
 		switch i {
 		case "az":
@@ -144,8 +144,8 @@ func (o *CommonOptions) DoInstallMissingDependencies(install []string) error {
 			err = o.InstallAws()
 		case "eksctl":
 			err = o.InstallEksCtl(false)
-		case "heptio-authenticator-aws":
-			err = o.InstallHeptioAuthenticatorAws(false)
+		case "aws-iam-authenticator":
+			err = o.InstallAwsIamAuthenticator(false)
 		case "kustomize":
 			err = o.InstallKustomize()
 		default:
@@ -162,7 +162,7 @@ func (o *CommonOptions) DoInstallMissingDependencies(install []string) error {
 func BinaryShouldBeInstalled(d string) string {
 	_, shouldInstall, err := ShouldInstallBinary(d)
 	if err != nil {
-		log.Warnf("Error detecting if binary should be installed: %s", err.Error())
+		log.Logger().Warnf("Error detecting if binary should be installed: %s", err.Error())
 		return ""
 	}
 	if shouldInstall {
@@ -176,7 +176,7 @@ func (o *CommonOptions) InstallBrew() error {
 	if runtime.GOOS != "darwin" {
 		return nil
 	}
-	log.Infof("Please enter your root password when prompted by the %s installation\n", util.ColorInfo("brew"))
+	log.Logger().Infof("Please enter your root password when prompted by the %s installation", util.ColorInfo("brew"))
 	//Make sure to run command through sh in order to get $() expanded.
 	return o.RunCommand("sh", "-c", "/usr/bin/ruby -e \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)\"")
 }
@@ -187,7 +187,7 @@ func ShouldInstallBinary(name string) (fileName string, download bool, err error
 	download = false
 	pgmPath, err := exec.LookPath(fileName)
 	if err == nil {
-		log.Debugf("%s is already available on your PATH at %s", util.ColorInfo(fileName), util.ColorInfo(pgmPath))
+		log.Logger().Debugf("%s is already available on your PATH at %s", util.ColorInfo(fileName), util.ColorInfo(pgmPath))
 		return
 	}
 
@@ -202,7 +202,7 @@ func ShouldInstallBinary(name string) (fileName string, download bool, err error
 		return
 	}
 	if exists {
-		log.Debugf("Please add %s to your PATH", util.ColorInfo(binDir))
+		log.Logger().Debugf("Please add %s to your PATH", util.ColorInfo(binDir))
 		return
 	}
 	download = true
@@ -428,7 +428,7 @@ func (o *CommonOptions) InstallGlooctl() error {
 	if runtime.GOOS == "windows" {
 		suffix += ".exe"
 	}
-	clientURL := fmt.Sprintf("https://github.com/solo-io/gloo/releases/download/v%v/glooctl-%s-%s", latestVersion, latestVersion, suffix)
+	clientURL := fmt.Sprintf("https://github.com/solo-io/gloo/releases/download/v%v/glooctl-%s-%s", latestVersion, runtime.GOOS, suffix)
 	fullPath := filepath.Join(binDir, fileName)
 	tmpFile := fullPath + ".tmp"
 	err = packages.DownloadFile(clientURL, tmpFile)
@@ -576,7 +576,7 @@ func (o *CommonOptions) InstallHyperkit() error {
 			return err
 		}
 
-		log.Warn("Installing hyperkit does require sudo to perform some actions, for more details see https://github.com/kubernetes/minikube/blob/master/docs/drivers.md#hyperkit-driver")
+		log.Logger().Warn("Installing hyperkit does require sudo to perform some actions, for more details see https://github.com/kubernetes/minikube/blob/master/docs/drivers.md#hyperkit-driver")
 
 		err = o.runCommand("sudo", "mv", "docker-machine-driver-hyperkit", "/usr/local/bin/")
 		if err != nil {
@@ -595,20 +595,20 @@ func (o *CommonOptions) InstallHyperkit() error {
 
 // InstallKvm installs kvm
 func (o *CommonOptions) InstallKvm() error {
-	log.Warnf("We cannot yet automate the installation of KVM - can you install this manually please?\nPlease see: https://www.linux-kvm.org/page/Downloads\n")
+	log.Logger().Warnf("We cannot yet automate the installation of KVM - can you install this manually please?\nPlease see: https://www.linux-kvm.org/page/Downloads")
 	return nil
 }
 
 // InstallKvm2 install kvm2
 func (o *CommonOptions) InstallKvm2() error {
-	log.Warnf("We cannot yet automate the installation of KVM with KVM2 driver - can you install this manually please?\nPlease see: https://www.linux-kvm.org/page/Downloads " +
-		"and https://github.com/kubernetes/minikube/blob/master/docs/drivers.md#kvm2-driver\n")
+	log.Logger().Warnf("We cannot yet automate the installation of KVM with KVM2 driver - can you install this manually please?\nPlease see: https://www.linux-kvm.org/page/Downloads " +
+		"and https://github.com/kubernetes/minikube/blob/master/docs/drivers.md#kvm2-driver")
 	return nil
 }
 
 // InstallVirtualBox installs virtual box
 func (o *CommonOptions) InstallVirtualBox() error {
-	log.Warnf("We cannot yet automate the installation of VirtualBox - can you install this manually please?\nPlease see: https://www.virtualbox.org/wiki/Downloads\n")
+	log.Logger().Warnf("We cannot yet automate the installation of VirtualBox - can you install this manually please?\nPlease see: https://www.virtualbox.org/wiki/Downloads")
 	return nil
 }
 
@@ -637,10 +637,10 @@ func (o *CommonOptions) InstallXhyve() error {
 		if err != nil {
 			return err
 		}
-		log.Info("xhyve driver installed")
+		log.Logger().Info("xhyve driver installed")
 	} else {
 		pgmPath, _ := exec.LookPath("docker-machine-driver-xhyve")
-		log.Infof("xhyve driver is already available on your PATH at %s\n", pgmPath)
+		log.Logger().Infof("xhyve driver is already available on your PATH at %s", pgmPath)
 	}
 	return nil
 }
@@ -654,7 +654,7 @@ func (o *CommonOptions) Installhyperv() error {
 	}
 	if strings.Contains(info, "Disabled") {
 
-		log.Info("hyperv is Disabled, this computer will need to restart\n and after restart you will need to rerun your inputted commmand.")
+		log.Logger().Info("hyperv is Disabled, this computer will need to restart\n and after restart you will need to rerun your inputted commmand.")
 
 		message := fmt.Sprintf("Would you like to restart your computer?")
 
@@ -675,7 +675,7 @@ func (o *CommonOptions) Installhyperv() error {
 		}
 
 	} else {
-		log.Info("hyperv is already Enabled")
+		log.Logger().Info("hyperv is already Enabled")
 	}
 	return nil
 }
@@ -821,19 +821,10 @@ func (o *CommonOptions) InstallHelm3() error {
 	if err != nil || !flag {
 		return err
 	}
-	/*
-	   latestVersion, err := util.GetLatestVersionFromGitHub("kubernetes", "helm")
-	   	if err != nil {
-	   		return err
-	   	}
-	*/
-	/*
-		latestVersion := "3"
-		clientURL := fmt.Sprintf("https://storage.googleapis.com/kubernetes-helm/helm-dev-v%s-%s-%s.tar.gz", latestVersion, runtime.GOOS, runtime.GOARCH)
-	*/
-	// let use our patched version
-	latestVersion := "untagged-93375777c6644a452a64"
-	clientURL := fmt.Sprintf("https://github.com/jstrachan/helm/releases/download/%v/helm-%s-%s.tar.gz", latestVersion, runtime.GOOS, runtime.GOARCH)
+
+	// https://get.helm.sh/helm-v3.0.0-alpha.1-darwin-amd64.tar.gz
+	latestVersion := "v3.0.0-alpha.1"
+	clientURL := fmt.Sprintf("https://get.helm.sh/helm-%v-%s-%s.tar.gz", latestVersion, runtime.GOOS, runtime.GOARCH)
 
 	tmpDir := filepath.Join(binDir, "helm3.tmp")
 	err = os.MkdirAll(tmpDir, util.DefaultWritePermissions)
@@ -871,7 +862,7 @@ func (o *CommonOptions) InstallHelm3() error {
 }
 
 func (o *CommonOptions) installHelmSecretsPlugin(helmBinary string, clientOnly bool) error {
-	log.Infof("Installing %s\n", util.ColorInfo("helm secrets plugin"))
+	log.Logger().Infof("Installing %s", util.ColorInfo("helm secrets plugin"))
 	err := o.Helm().Init(clientOnly, "", "", false)
 	if err != nil {
 		return errors.Wrap(err, "failed to initialize helm")
@@ -923,7 +914,7 @@ func (o *CommonOptions) InstallMavenIfRequired() error {
 	// lets assume maven is not installed so lets download it
 	clientURL := fmt.Sprintf("http://central.maven.org/maven2/org/apache/maven/apache-maven/%s/apache-maven-%s-bin.zip", maven.MavenVersion, maven.MavenVersion)
 
-	log.Infof("Apache Maven is not installed so lets download: %s\n", util.ColorInfo(clientURL))
+	log.Logger().Infof("Apache Maven is not installed so lets download: %s", util.ColorInfo(clientURL))
 
 	mvnDir := filepath.Join(homeDir, "maven")
 	mvnTmpDir := filepath.Join(homeDir, "maven-tmp")
@@ -935,14 +926,14 @@ func (o *CommonOptions) InstallMavenIfRequired() error {
 		return err
 	}
 
-	log.Info("\ndownloadFile\n")
+	log.Logger().Info("\ndownloadFile")
 	err = packages.DownloadFile(clientURL, zipFile)
 	if err != nil {
 		m.Unlock()
 		return err
 	}
 
-	log.Info("\nutil.Unzip\n")
+	log.Logger().Info("\nutil.Unzip")
 	err = util.Unzip(zipFile, mvnTmpDir)
 	if err != nil {
 		m.Unlock()
@@ -950,7 +941,7 @@ func (o *CommonOptions) InstallMavenIfRequired() error {
 	}
 
 	// lets find a directory inside the unzipped folder
-	log.Info("\nReadDir\n")
+	log.Logger().Info("\nReadDir")
 	files, err := ioutil.ReadDir(mvnTmpDir)
 	if err != nil {
 		m.Unlock()
@@ -966,7 +957,7 @@ func (o *CommonOptions) InstallMavenIfRequired() error {
 				m.Unlock()
 				return err
 			}
-			log.Infof("Apache Maven is installed at: %s\n", util.ColorInfo(mvnDir))
+			log.Logger().Infof("Apache Maven is installed at: %s", util.ColorInfo(mvnDir))
 			m.Unlock()
 			err = os.Remove(zipFile)
 			if err != nil {
@@ -1174,7 +1165,7 @@ func (o *CommonOptions) InstallJx(upgrade bool, version string) error {
 		}
 		err = os.Remove(filepath.Join(binDir, "jx"))
 		if err != nil && o.Verbose {
-			log.Infof("Skipping removal of old jx binary: %s\n", err)
+			log.Logger().Infof("Skipping removal of old jx binary: %s", err)
 		}
 		// Copy over the new binary
 		err = os.Rename(filepath.Join(jxHome, "jx"), filepath.Join(binDir, "jx"))
@@ -1207,7 +1198,7 @@ func (o *CommonOptions) InstallJx(upgrade bool, version string) error {
 			return err
 		}
 	}
-	log.Infof("Jenkins X client has been installed into %s\n", util.ColorInfo(fullPath))
+	log.Logger().Infof("Jenkins X client has been installed into %s", util.ColorInfo(fullPath))
 	return os.Chmod(fullPath, 0755)
 }
 
@@ -1298,7 +1289,7 @@ func (o *CommonOptions) InstallAzureCli() error {
 func (o *CommonOptions) InstallOciCli() error {
 	var err error
 	filePath := "./install.sh"
-	log.Info("Installing OCI CLI...\n")
+	log.Logger().Info("Installing OCI CLI...")
 	err = o.RunCommand("curl", "-LO", "https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh")
 
 	if err != nil {
@@ -1338,17 +1329,17 @@ func (o *CommonOptions) InstallEksCtlWithVersion(version string, skipPathScan bo
 	})
 }
 
-// InstallHeptioAuthenticatorAws install heptio authenticator for AWS
-func (o *CommonOptions) InstallHeptioAuthenticatorAws(skipPathScan bool) error {
-	return o.InstallHeptioAuthenticatorAwsWithVersion(packages.HeptioAuthenticatorAwsVersion, skipPathScan)
+// InstallAwsIamAuthenticator install iam authenticator for AWS
+func (o *CommonOptions) InstallAwsIamAuthenticator(skipPathScan bool) error {
+	return o.InstallAwsIamAuthenticatorWithVersion(packages.IamAuthenticatorAwsVersion, skipPathScan)
 }
 
-// InstallHeptioAuthenticatorAwsWithVersion install a specific version of heptio authenticator for AWS
-func (o *CommonOptions) InstallHeptioAuthenticatorAwsWithVersion(version string, skipPathScan bool) error {
+// InstallAwsIamAuthenticatorWithVersion install a specific version of iam authenticator for AWS
+func (o *CommonOptions) InstallAwsIamAuthenticatorWithVersion(version string, skipPathScan bool) error {
 	return o.InstallOrUpdateBinary(InstallOrUpdateBinaryOptions{
-		Binary:              "heptio-authenticator-aws",
+		Binary:              "aws-iam-authenticator",
 		GitHubOrganization:  "",
-		DownloadUrlTemplate: "https://amazon-eks.s3-us-west-2.amazonaws.com/{{.version}}/2018-06-05/bin/{{.os}}/{{.arch}}/heptio-authenticator-aws",
+		DownloadUrlTemplate: "https://amazon-eks.s3-us-west-2.amazonaws.com/{{.version}}/2019-03-27/bin/{{.os}}/{{.arch}}/aws-iam-authenticator",
 		Version:             version,
 		SkipPathScan:        skipPathScan,
 		VersionExtractor:    nil,
@@ -1459,7 +1450,7 @@ func (o *CommonOptions) InstallRequirements(cloudProvider string, extraDependenc
 		deps = o.AddRequiredBinary("kops", deps)
 	case cloud.EKS:
 		deps = o.AddRequiredBinary("eksctl", deps)
-		deps = o.AddRequiredBinary("heptio-authenticator-aws", deps)
+		deps = o.AddRequiredBinary("aws-iam-authenticator", deps)
 	case cloud.AKS:
 		deps = o.AddRequiredBinary("az", deps)
 	case cloud.GKE:
@@ -1528,7 +1519,7 @@ rules:
 	_, err1 := o.GetCommandOutput("", "kubectl", "create", "clusterrolebinding", "kube-system-cluster-admin", "--clusterrole", "cluster-admin", "--serviceaccount", "kube-system:default")
 	if err1 != nil {
 		if strings.Contains(err1.Error(), "AlreadyExists") {
-			log.Success("role cluster-admin already exists for the cluster")
+			log.Logger().Info("role cluster-admin already exists for the cluster")
 		} else {
 			return err1
 		}
@@ -1537,7 +1528,7 @@ rules:
 	_, err2 := o.GetCommandOutput("", "kubectl", "create", "-f", tmpfile.Name())
 	if err2 != nil {
 		if strings.Contains(err2.Error(), "AlreadyExists") {
-			log.Success("clusterroles.rbac.authorization.k8s.io 'cluster-admin' already exists")
+			log.Logger().Info("clusterroles.rbac.authorization.k8s.io 'cluster-admin' already exists")
 		} else {
 			return err2
 		}
@@ -1548,7 +1539,6 @@ rules:
 
 // GetClusterUserName returns cluster and user name
 func (o *CommonOptions) GetClusterUserName() (string, error) {
-
 	username, _ := o.GetCommandOutput("", "gcloud", "config", "get-value", "core/account")
 
 	if username != "" {
@@ -1557,7 +1547,7 @@ func (o *CommonOptions) GetClusterUserName() (string, error) {
 
 	config, _, err := o.Kube().LoadConfig()
 	if err != nil {
-		return username, err
+		return username, errors.Wrap(err, "loading kube config")
 	}
 	if config == nil || config.Contexts == nil || len(config.Contexts) == 0 {
 		return username, fmt.Errorf("No Kubernetes contexts available! Try create or connect to cluster?")
@@ -1584,7 +1574,7 @@ func GetSafeUsername(username string) string {
 }
 
 // InstallProw installs prow
-func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOps bool, gitOpsDir string, gitOpsEnvDir string, gitUsername string) error {
+func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOps bool, gitOpsDir string, gitOpsEnvDir string, gitUsername string, valuesFiles []string) error {
 	if o.ReleaseName == "" {
 		o.ReleaseName = kube.DefaultProwReleaseName
 	}
@@ -1605,7 +1595,7 @@ func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOp
 	if o.OAUTHToken == "" {
 		authConfigSvc, err := o.CreateGitAuthConfigService()
 		if err != nil {
-			return err
+			return errors.Wrap(err, "creating git auth config svc")
 		}
 
 		config := authConfigSvc.Config()
@@ -1614,7 +1604,7 @@ func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOp
 		message := fmt.Sprintf("%s bot user for CI/CD pipelines (not your personal Git user):", server.Label())
 		userAuth, err := config.PickServerUserAuth(server, message, o.BatchMode, "", o.In, o.Out, o.Err)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "picking bot user auth")
 		}
 		o.OAUTHToken = userAuth.ApiToken
 	}
@@ -1622,42 +1612,43 @@ func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOp
 	if o.Username == "" {
 		o.Username, err = o.GetClusterUserName()
 		if err != nil {
-			return err
+			return errors.Wrap(err, "retrieving the cluster user name")
 		}
 	}
 	if gitUsername == "" {
 		gitUsername = o.Username
 	}
 
-	client, err := o.KubeClient()
+	client, devNamespace, err := o.KubeClientAndDevNamespace()
 	if err != nil {
-		return err
-	}
-
-	devNamespace, _, err := kube.GetDevNamespace(client, o.currentNamespace)
-	if err != nil {
-		return fmt.Errorf("cannot find a dev team namespace to get existing exposecontroller config from. %v", err)
+		return errors.Wrap(err, "creating kube client")
 	}
 
 	setValues := strings.Split(o.SetValues, ",")
 
 	settings, err := o.TeamSettings()
 	if err != nil {
-		return err
+		return errors.Wrap(err, "reading the team settings")
 	}
+
+	log.Logger().Infof("\nSetting up prow config into namespace %s", util.ColorInfo(devNamespace))
 
 	// create initial configmaps if they don't already exist, use a dummy repo so tide doesn't start scanning all github
 	_, err = client.CoreV1().ConfigMaps(devNamespace).Get("config", metav1.GetOptions{})
 	if err != nil {
 		err = prow.AddApplication(client, []string{"jenkins-x/dummy"}, devNamespace, "base", settings)
 		if err != nil {
-			return err
+			return errors.Wrap(err, "adding dummy application")
 		}
 	}
-	log.Infof("\nInstalling knative into namespace %s\n", util.ColorInfo(devNamespace))
+
+	knativeOrTekton := "tekton"
+	if !useTekton {
+		knativeOrTekton = "knative"
+	}
+	log.Logger().Infof("\nInstalling %s into namespace %s", knativeOrTekton, util.ColorInfo(devNamespace))
 
 	ksecretValues := []string{}
-
 	if settings.HelmTemplate || settings.NoTiller || settings.HelmBinary != "helm" {
 		// lets disable tiller
 		setValues = append(setValues, "tillerNamespace=")
@@ -1674,7 +1665,7 @@ func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOp
 
 		err = o.Retry(2, time.Second, func() (err error) {
 			return o.InstallChartOrGitOps(isGitOps, gitOpsDir, gitOpsEnvDir, kube.DefaultTektonReleaseName,
-				kube.ChartTekton, "tekton", "", devNamespace, true, setValues, ksecretValues, nil, "")
+				kube.ChartTekton, "tekton", "", devNamespace, true, setValues, ksecretValues, valuesFiles, "")
 		})
 		if err != nil {
 			return errors.Wrap(err, "failed to install Tekton")
@@ -1691,7 +1682,7 @@ func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOp
 		ksecretValues = append(ksecretValues, "build.auth.git.username="+gitUsername, "build.auth.git.password="+o.OAUTHToken)
 		err = o.Retry(2, time.Second, func() (err error) {
 			return o.InstallChartOrGitOps(isGitOps, gitOpsDir, gitOpsEnvDir, kube.DefaultKnativeBuildReleaseName,
-				kube.ChartKnativeBuild, "knativebuild", "", devNamespace, true, setValues, ksecretValues, nil, "")
+				kube.ChartKnativeBuild, "knativebuild", "", devNamespace, true, setValues, ksecretValues, valuesFiles, "")
 		})
 		if err != nil {
 			return errors.Wrap(err, "failed to install Knative build")
@@ -1707,13 +1698,11 @@ func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOp
 	}
 
 	if useExternalDNS && strings.Contains(o.Domain, "nip.io") {
-		log.Warnf("Skipping install of External DNS, %s domain is not supported while using External DNS\n", util.ColorInfo(o.Domain))
-		log.Warnf("External DNS only supports the use of personally operated domains\n")
+		log.Logger().Warnf("Skipping install of External DNS, %s domain is not supported while using External DNS", util.ColorInfo(o.Domain))
+		log.Logger().Warnf("External DNS only supports the use of personally operated domains")
 	} else if useExternalDNS && o.Domain != "" {
-		log.Infof("Preparing to install ExternalDNS into namespace %s\n", util.ColorInfo(devNamespace))
-		log.Infof("External DNS for Jenkins X is currently only supoorted on GKE\n")
-		log.Infof("You will need to ensure that a sub-domain record is present for the %s namespace which delegates onto %s\n", util.ColorInfo(devNamespace), util.ColorInfo(o.Domain))
-		log.Infof("\ti.e. %s(CNAME) => %s\n", util.ColorInfo(devNamespace+"."+o.Domain), util.ColorInfo(o.Domain))
+		log.Logger().Infof("Preparing to install ExternalDNS into namespace %s", util.ColorInfo(devNamespace))
+		log.Logger().Infof("External DNS for Jenkins X is currently only supoorted on GKE")
 
 		err = o.installExternalDNSGKE()
 		if err != nil {
@@ -1721,20 +1710,23 @@ func (o *CommonOptions) InstallProw(useTekton bool, useExternalDNS bool, isGitOp
 		}
 	}
 
-	log.Infof("\nInstalling Prow into namespace %s\n", util.ColorInfo(devNamespace))
+	log.Logger().Infof("\nInstalling Prow into namespace %s", util.ColorInfo(devNamespace))
+
+	for _, value := range valuesFiles {
+		log.Logger().Infof("with values file %s", util.ColorInfo(value))
+	}
 
 	secretValues := []string{"user=" + gitUsername, "oauthToken=" + o.OAUTHToken, "hmacToken=" + o.HMACToken}
 	err = o.Retry(2, time.Second, func() (err error) {
 		return o.InstallChartOrGitOps(isGitOps, gitOpsDir, gitOpsEnvDir, o.ReleaseName,
-			o.Chart, "prow", prowVersion, devNamespace, true, setValues, secretValues, nil, "")
+			o.Chart, "prow", prowVersion, devNamespace, true, setValues, secretValues, valuesFiles, "")
 	})
 	if err != nil {
 		return errors.Wrap(err, "failed to install Prow")
 	}
 
 	if !useTekton {
-		log.Infof("\nInstalling BuildTemplates into namespace %s\n", util.ColorInfo(devNamespace))
-
+		log.Logger().Infof("\nInstalling BuildTemplates into namespace %s", util.ColorInfo(devNamespace))
 		err = o.Retry(2, time.Second, func() (err error) {
 			return o.InstallChartOrGitOps(isGitOps, gitOpsDir, gitOpsEnvDir, kube.DefaultBuildTemplatesReleaseName,
 				kube.ChartBuildTemplates, "jxbuildtemplates", "", devNamespace, true, nil, nil, nil, "")
@@ -1762,7 +1754,10 @@ func (o *CommonOptions) CreateWebhookProw(gitURL string, gitProvider gits.GitPro
 	}
 	baseURL, err := services.GetServiceURLFromName(client, "hook", ns)
 	if err != nil {
-		return err
+		return errors.Wrapf(err, "in namespace %s", ns)
+	}
+	if baseURL == "" {
+		return fmt.Errorf("failed to find external URL of service hook in namespace %s", ns)
 	}
 	webhookUrl := util.UrlJoin(baseURL, "hook")
 
@@ -1824,6 +1819,11 @@ func (o *CommonOptions) installExternalDNSGKE() error {
 		return errors.Wrap(err, "failed to get clusterName")
 	}
 
+	err = o.helm.AddRepo(kube.ChartOwnerExternalDNS, kube.ChartURLExternalDNS, "", "")
+	if err != nil {
+		return errors.Wrapf(err, "adding helm repo")
+	}
+
 	googleProjectID, err := gke.GetCurrentProject()
 	if err != nil {
 		return errors.Wrap(err, "failed to get project")
@@ -1856,7 +1856,7 @@ func (o *CommonOptions) installExternalDNSGKE() error {
 		"domainFilters=" + "{" + o.Domain + "}",
 	}
 
-	log.Infof("\nInstalling External DNS into namespace %s\n", util.ColorInfo(devNamespace))
+	log.Logger().Infof("\nInstalling External DNS into namespace %s", util.ColorInfo(devNamespace))
 	err = o.Retry(2, time.Second, func() (err error) {
 		return o.InstallChartOrGitOps(false, "", "", kube.DefaultExternalDNSReleaseName, kube.ChartExternalDNS,
 			kube.ChartExternalDNS, "", devNamespace, true, values, nil, nil, "")

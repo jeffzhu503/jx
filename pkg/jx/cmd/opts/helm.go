@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pborman/uuid"
+
 	"github.com/jenkins-x/jx/pkg/environments"
 	"gopkg.in/src-d/go-git.v4/plumbing"
 
@@ -74,19 +76,19 @@ func (o *CommonOptions) defaultInitHelmConfig() InitHelmConfig {
 	}
 }
 
-// InitHelm initializes hlem client and server (tillter)
+// InitHelm initializes helm client and server (tiller)
 func (o *CommonOptions) InitHelm(config InitHelmConfig) error {
 	var err error
 
 	skipTiller := config.SkipTiller
 	if config.Helm3 {
-		log.Infof("Using %s\n", util.ColorInfo("helm3"))
+		log.Logger().Infof("Using %s", util.ColorInfo("helm3"))
 		skipTiller = true
 	} else {
-		log.Infof("Using %s\n", util.ColorInfo("helm2"))
+		log.Logger().Infof("Using %s", util.ColorInfo("helm2"))
 	}
 	if !skipTiller {
-		log.Infof("Configuring %s\n", util.ColorInfo("tiller"))
+		log.Logger().Infof("Configuring %s", util.ColorInfo("tiller"))
 		client, curNs, err := o.KubeClientAndNamespace()
 		if err != nil {
 			return err
@@ -144,7 +146,7 @@ func (o *CommonOptions) InitHelm(config InitHelmConfig) error {
 				if err != nil {
 					return fmt.Errorf("Failed to create Role %s in namespace %s: %s", roleName, tillerNamespace, err)
 				}
-				log.Infof("Created Role %s in namespace %s\n", util.ColorInfo(roleName), util.ColorInfo(tillerNamespace))
+				log.Logger().Infof("Created Role %s in namespace %s", util.ColorInfo(roleName), util.ColorInfo(tillerNamespace))
 			}
 			_, err = client.RbacV1().RoleBindings(tillerNamespace).Get(roleBindingName, metav1.GetOptions{})
 			if err != nil {
@@ -171,13 +173,13 @@ func (o *CommonOptions) InitHelm(config InitHelmConfig) error {
 				if err != nil {
 					return fmt.Errorf("Failed to create RoleBinding %s in namespace %s: %s", roleName, tillerNamespace, err)
 				}
-				log.Infof("Created RoleBinding %s in namespace %s\n", util.ColorInfo(roleName), util.ColorInfo(tillerNamespace))
+				log.Logger().Infof("Created RoleBinding %s in namespace %s", util.ColorInfo(roleName), util.ColorInfo(tillerNamespace))
 			}
 		}
 
 		running, err := kube.IsDeploymentRunning(client, "tiller-deploy", tillerNamespace)
 		if running {
-			log.Infof("Tiller Deployment is running in namespace %s\n", util.ColorInfo(tillerNamespace))
+			log.Logger().Infof("Tiller Deployment is running in namespace %s", util.ColorInfo(tillerNamespace))
 			return nil
 		}
 		if err == nil && !running {
@@ -185,7 +187,7 @@ func (o *CommonOptions) InitHelm(config InitHelmConfig) error {
 		}
 
 		if !running {
-			log.Infof("Initialising helm using ServiceAccount %s in namespace %s\n", util.ColorInfo(serviceAccountName), util.ColorInfo(tillerNamespace))
+			log.Logger().Infof("Initialising helm using ServiceAccount %s in namespace %s", util.ColorInfo(serviceAccountName), util.ColorInfo(tillerNamespace))
 
 			err = o.Helm().Init(false, serviceAccountName, tillerNamespace, false)
 			if err != nil {
@@ -202,13 +204,13 @@ func (o *CommonOptions) InitHelm(config InitHelmConfig) error {
 			}
 		}
 
-		log.Infof("Waiting for tiller-deploy to be ready in tiller namespace %s\n", tillerNamespace)
+		log.Logger().Infof("Waiting for tiller-deploy to be ready in tiller namespace %s", tillerNamespace)
 		err = kube.WaitForDeploymentToBeReady(client, "tiller-deploy", tillerNamespace, 10*time.Minute)
 		if err != nil {
 			return err
 		}
 	} else {
-		log.Infof("Skipping %s\n", util.ColorInfo("tiller"))
+		log.Logger().Infof("Skipping %s", util.ColorInfo("tiller"))
 	}
 
 	if config.Helm3 {
@@ -227,7 +229,7 @@ func (o *CommonOptions) InitHelm(config InitHelmConfig) error {
 	if err != nil {
 		return err
 	}
-	log.Success("helm installed and configured")
+	log.Logger().Info("helm installed and configured")
 
 	return nil
 }
@@ -282,21 +284,20 @@ func (o *CommonOptions) RegisterLocalHelmRepo(repoName, ns string) error {
 	return o.Helm().AddRepo(repoName, helmUrl, "", "")
 }
 
-// AddHelmRepoIfMissing adds the given helm repo if its not already added
-func (o *CommonOptions) AddHelmRepoIfMissing(helmUrl, repoName, username, password string) error {
-	return o.AddHelmBinaryRepoIfMissing(helmUrl, repoName, username, password)
-}
-
-func (o *CommonOptions) AddHelmBinaryRepoIfMissing(helmUrl, repoName, username, password string) error {
+//AddHelmBinaryRepoIfMissing adds the helm repo at url if it's missing. If a repoName is specified it will be used (if
+// the repo is added) otherwise one will be generated. The username and password will be used, and stored in vault, if
+// possible. The name of the repo (regardless of whether it was added or already there) is returned - this may well be
+// different from the requested name (if it's already there).
+func (o *CommonOptions) AddHelmBinaryRepoIfMissing(url, repoName, username, password string) (string, error) {
 	vaultClient, err := o.SystemVaultClient("")
 	if err != nil {
 		vaultClient = nil
 	}
-	_, err = helm.AddHelmRepoIfMissing(helmUrl, repoName, username, password, o.Helm(), vaultClient, o.In, o.Out, o.Err)
+	name, err := helm.AddHelmRepoIfMissing(url, repoName, username, password, o.Helm(), vaultClient, o.In, o.Out, o.Err)
 	if err != nil {
-		return errors.WithStack(err)
+		return "", errors.WithStack(err)
 	}
-	return nil
+	return name, nil
 }
 
 // InstallChartOrGitOps if using gitOps lets write files otherwise lets use helm
@@ -338,7 +339,7 @@ func (o *CommonOptions) InstallChartOrGitOps(isGitOps bool, gitOpsDir string, gi
 		defer func() {
 			err := util.DeleteFile(fileName.Name())
 			if err != nil {
-				log.Errorf("deleting file %s: %v", fileName.Name(), err)
+				log.Logger().Errorf("deleting file %s: %v", fileName.Name(), err)
 			}
 		}()
 		if err != nil {
@@ -351,7 +352,15 @@ func (o *CommonOptions) InstallChartOrGitOps(isGitOps bool, gitOpsDir string, gi
 		valuesFiles.Items = append(valuesFiles.Items, fileName.Name())
 	}
 
-	modifyFn := environments.CreateAddRequirementFn(chart, alias, version, repo, valuesFiles, gitOpsEnvDir, o.Verbose, o.Helm())
+	//Needed for generated Apps - Otherwise the main repo's Chart.yml is used and the Apps metadata is left empty
+	chartUntarDir, _ := ioutil.TempDir("", chart+uuid.NewUUID().String())
+	err := o.Helm().FetchChart(chart, version, true, chartUntarDir, repo, "", "")
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	// Maybe modify the gitOpsEnvDir to after a fetch
+	modifyFn := environments.CreateAddRequirementFn(chart, alias, version, repo, valuesFiles, filepath.Join(chartUntarDir, chart), o.Verbose, o.Helm())
 
 	if len(setSecrets) > 0 {
 		secretsFile := filepath.Join(gitOpsEnvDir, helm.SecretsFileName)
@@ -425,19 +434,20 @@ func (o *CommonOptions) CloneJXVersionsRepo(versionRepository string, versionRef
 	if versionRepository == "" {
 		versionRepository = DefaultVersionsURL
 	}
-	o.Debugf("Current configuration dir: %s\n", configDir)
-	o.Debugf("versionRepository: %s git ref: %s\n", versionRepository, versionRef)
+
+	log.Logger().Debugf("Current configuration dir: %s", configDir)
+	log.Logger().Debugf("versionRepository: %s git ref: %s", versionRepository, versionRef)
 
 	// If the repo already exists let's try to fetch the latest version
 	if exists, err := util.DirExists(wrkDir); err == nil && exists {
 		repo, err := git.PlainOpen(wrkDir)
 		if err != nil {
-			log.Errorf("Error opening %s", wrkDir)
+			log.Logger().Errorf("Error opening %s", wrkDir)
 			return o.deleteAndReClone(wrkDir, versionRepository, versionRef, o.Out)
 		}
 		remote, err := repo.Remote("origin")
 		if err != nil {
-			log.Errorf("Error getting remote origin")
+			log.Logger().Errorf("Error getting remote origin")
 			return o.deleteAndReClone(wrkDir, versionRepository, versionRef, o.Out)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
@@ -468,15 +478,18 @@ func (o *CommonOptions) CloneJXVersionsRepo(versionRepository string, versionRef
 			pullLatest := false
 			if o.BatchMode {
 				pullLatest = true
-			} else {
+			} else if o.AdvancedMode {
 				confirm := &survey.Confirm{
 					Message: "A local Jenkins X versions repository already exists, pull the latest?",
 					Default: true,
 				}
-				survey.AskOne(confirm, &pullLatest, nil, surveyOpts)
+				err = survey.AskOne(confirm, &pullLatest, nil, surveyOpts)
 				if err != nil {
-					log.Errorf("Error confirming if we should pull latest, skipping %s\n", wrkDir)
+					log.Logger().Errorf("Error confirming if we should pull latest, skipping %s", wrkDir)
 				}
+			} else {
+				pullLatest = true
+				log.Logger().Infof(util.QuestionAnswer("A local Jenkins X versions repository already exists, pulling the latest", util.YesNo(pullLatest)))
 			}
 
 			if pullLatest {
@@ -496,7 +509,7 @@ func (o *CommonOptions) CloneJXVersionsRepo(versionRepository string, versionRef
 }
 
 func (o *CommonOptions) deleteAndReClone(wrkDir string, versionRepository string, referenceName string, fw terminal.FileWriter) (string, error) {
-	log.Info("Deleting and cloning the Jenkins X versions repo")
+	log.Logger().Info("Deleting and cloning the Jenkins X versions repo")
 	err := os.RemoveAll(wrkDir)
 	if err != nil {
 		return "", errors.Wrapf(err, "failed to delete dir %s: %s\n", wrkDir, err.Error())
@@ -519,14 +532,29 @@ func (o *CommonOptions) clone(wrkDir string, versionRepository string, reference
 		if strings.HasPrefix(referenceName, "PR-") {
 			prNumber := strings.TrimPrefix(referenceName, "PR-")
 
-			log.Infof("Cloning the Jenkins X versions repo %s with PR: %s to %s\n", util.ColorInfo(versionRepository), util.ColorInfo(referenceName), util.ColorInfo(wrkDir))
+			log.Logger().Infof("Cloning the Jenkins X versions repo %s with PR: %s to %s", util.ColorInfo(versionRepository), util.ColorInfo(referenceName), util.ColorInfo(wrkDir))
 			return o.shallowCloneGitRepositoryToDir(wrkDir, versionRepository, prNumber, "")
 		}
-		log.Infof("Cloning the Jenkins X versions repo %s with revision %s to %s\n", util.ColorInfo(versionRepository), util.ColorInfo(referenceName), util.ColorInfo(wrkDir))
+		log.Logger().Infof("Cloning the Jenkins X versions repo %s with revision %s to %s", util.ColorInfo(versionRepository), util.ColorInfo(referenceName), util.ColorInfo(wrkDir))
 
-		return o.shallowCloneGitRepositoryToDir(wrkDir, versionRepository, "", "")
+		err := o.Git().Clone(versionRepository, wrkDir)
+		if err != nil {
+			return errors.Wrapf(err, "failed to clone repository: %s to dir %s", versionRepository, wrkDir)
+		}
+		err = o.RunCommandFromDir(wrkDir, "git", "fetch", "origin", referenceName)
+		if err != nil {
+			return errors.Wrapf(err, "failed to git fetch origin %s for repo: %s in dir %s", referenceName, versionRepository, wrkDir)
+		}
+		err = o.Git().Checkout(wrkDir, "FETCH_HEAD")
+		if err != nil {
+			return errors.Wrapf(err, "failed to checkout FETCH_HEAD of repo: %s in dir %s", versionRepository, wrkDir)
+		}
+		return nil
+
+		// TODO doesn't seem to work at all for a git ref....
+		//return o.shallowCloneGitRepositoryToDir(wrkDir, versionRepository, "", referenceName)
 	}
-	log.Infof("Cloning the Jenkins X versions repo %s with ref %s to %s\n", util.ColorInfo(versionRepository), util.ColorInfo(referenceName), util.ColorInfo(wrkDir))
+	log.Logger().Infof("Cloning the Jenkins X versions repo %s with ref %s to %s", util.ColorInfo(versionRepository), util.ColorInfo(referenceName), util.ColorInfo(wrkDir))
 	_, err := git.PlainClone(wrkDir, false, &git.CloneOptions{
 		URL:           versionRepository,
 		ReferenceName: plumbing.ReferenceName(referenceName),
@@ -541,7 +569,7 @@ func (o *CommonOptions) clone(wrkDir string, versionRepository string, reference
 
 func (o *CommonOptions) shallowCloneGitRepositoryToDir(dir string, gitURL string, pullRequestNumber string, revision string) error {
 	if pullRequestNumber != "" {
-		log.Infof("shallow cloning pull request %s of repository %s to temp dir %s\n", gitURL,
+		log.Logger().Infof("shallow cloning pull request %s of repository %s to temp dir %s", gitURL,
 			pullRequestNumber, dir)
 		err := o.Git().ShallowClone(dir, gitURL, "", pullRequestNumber)
 		if err != nil {
@@ -549,7 +577,7 @@ func (o *CommonOptions) shallowCloneGitRepositoryToDir(dir string, gitURL string
 				pullRequestNumber, dir)
 		}
 	} else if revision != "" {
-		log.Infof("shallow cloning revision %s of repository %s to temp dir %s\n", gitURL,
+		log.Logger().Infof("shallow cloning revision %s of repository %s to temp dir %s", gitURL,
 			revision, dir)
 		err := o.Git().ShallowClone(dir, gitURL, revision, "")
 		if err != nil {
@@ -557,25 +585,13 @@ func (o *CommonOptions) shallowCloneGitRepositoryToDir(dir string, gitURL string
 				revision, dir)
 		}
 	} else {
-		log.Infof("shallow cloning master of repository %s to temp dir %s\n", gitURL, dir)
+		log.Logger().Infof("shallow cloning master of repository %s to temp dir %s", gitURL, dir)
 		err := o.Git().ShallowClone(dir, gitURL, "", "")
 		if err != nil {
 			return errors.Wrapf(err, "shallow cloning master of repository %s to temp dir %s\n", gitURL, dir)
 		}
 	}
 
-	return nil
-}
-
-func deleteDirectory(wrkDir string) error {
-	log.Infof("Delete previous Jenkins X version repo from %s\n", wrkDir)
-	// If it exists a this stage most likely its content is not consistent
-	if exists, err := util.DirExists(wrkDir); err == nil && exists {
-		err := util.DeleteDirContents(wrkDir)
-		if err != nil {
-			return errors.Wrapf(err, "cleaning the content of %q dir", wrkDir)
-		}
-	}
 	return nil
 }
 
@@ -656,11 +672,6 @@ func (o *CommonOptions) DiscoverAppName() (string, error) {
 	return answer, nil
 }
 
-// IsHelmRepoMissing checks if the given helm repository is missing
-func (o *CommonOptions) IsHelmRepoMissing(helmUrlString string) (bool, error) {
-	return o.Helm().IsRepoMissing(helmUrlString)
-}
-
 // AddChartRepos add chart repositories
 func (o *CommonOptions) AddChartRepos(dir string, helmBinary string, chartRepos []string) error {
 	installedChartRepos, err := o.GetInstalledChartRepos(helmBinary)
@@ -670,7 +681,7 @@ func (o *CommonOptions) AddChartRepos(dir string, helmBinary string, chartRepos 
 	if chartRepos != nil {
 		for _, url := range chartRepos {
 			if !util.StringMapHasValue(installedChartRepos, url) {
-				err = o.AddHelmBinaryRepoIfMissing(url, "", "", "")
+				_, err = o.AddHelmBinaryRepoIfMissing(url, "", "", "")
 				if err != nil {
 					return errors.Wrapf(err, "failed to add the Helm repository with URL '%s'", url)
 				}
@@ -689,30 +700,32 @@ func (o *CommonOptions) AddChartRepos(dir string, helmBinary string, chartRepos 
 			return errors.Wrap(err, "failed to load the Helm requirements file")
 		}
 		if requirements != nil {
+			changed := false
 			// lets replace the release chart museum URL if required
 			chartRepoURL := o.ReleaseChartMuseumUrl()
 			if chartRepoURL != "" && chartRepoURL != DefaultChartRepo {
-				changed := false
 				for i := range requirements.Dependencies {
 					if requirements.Dependencies[i].Repository == DefaultChartRepo {
 						requirements.Dependencies[i].Repository = chartRepoURL
 						changed = true
 					}
 				}
-				if changed {
-					err = helm.SaveFile(reqfile, requirements)
-					if err != nil {
-						return err
-					}
-				}
 			}
 			for _, dep := range requirements.Dependencies {
 				repo := dep.Repository
-				if repo != "" && !util.StringMapHasValue(installedChartRepos, repo) && repo != DefaultChartRepo && !strings.HasPrefix(repo, "file:") && !strings.HasPrefix(repo, "alias:") {
-					err = o.AddHelmBinaryRepoIfMissing(repo, "", "", "")
+				if repo != "" && !util.StringMapHasValue(installedChartRepos, repo) && repo != DefaultChartRepo && !strings.HasPrefix(repo, "file:") && !strings.HasPrefix(repo, "alias:") && !strings.HasPrefix(repo, "@") {
+					name, err := o.AddHelmBinaryRepoIfMissing(repo, "", "", "")
 					if err != nil {
 						return errors.Wrapf(err, "failed to add Helm repository '%s'", repo)
 					}
+					dep.Repository = fmt.Sprintf("@%s", name)
+					changed = true
+				}
+			}
+			if changed {
+				err := helm.SaveFile(reqfile, requirements)
+				if err != nil {
+					return errors.Wrap(err, "failed to save the Helm requirements file")
 				}
 			}
 		}
@@ -785,7 +798,7 @@ func (o *CommonOptions) HelmInitDependency(dir string, chartRepos []string) (str
 }
 
 // HelmInitDependencyBuild initialises the dependencies an run the build
-func (o *CommonOptions) HelmInitDependencyBuild(dir string, chartRepos []string) (string, error) {
+func (o *CommonOptions) HelmInitDependencyBuild(dir string, chartRepos []string, valuesFiles []string) (string, error) {
 	helmBin, err := o.HelmInitDependency(dir, chartRepos)
 	if err != nil {
 		return helmBin, err
@@ -802,7 +815,7 @@ func (o *CommonOptions) HelmInitDependencyBuild(dir string, chartRepos []string)
 	}
 
 	o.Helm().SetHelmBinary(helmBinary)
-	_, err = o.Helm().Lint()
+	_, err = o.Helm().Lint(valuesFiles)
 	if err != nil {
 		return helmBinary, errors.Wrapf(err, "failed to lint the chart '%s'", dir)
 	}
@@ -810,7 +823,7 @@ func (o *CommonOptions) HelmInitDependencyBuild(dir string, chartRepos []string)
 }
 
 // HelmInitRecursiveDependencyBuild helm initialises the dependencies recursively
-func (o *CommonOptions) HelmInitRecursiveDependencyBuild(dir string, chartRepos []string) error {
+func (o *CommonOptions) HelmInitRecursiveDependencyBuild(dir string, chartRepos []string, valuesFiles []string) error {
 	_, err := o.HelmInitDependency(dir, chartRepos)
 	if err != nil {
 		return errors.Wrap(err, "initializing Helm")
@@ -878,7 +891,7 @@ func (o *CommonOptions) HelmInitRecursiveDependencyBuild(dir string, chartRepos 
 	}
 
 	o.Helm().SetHelmBinary(helmBinary)
-	_, err = o.Helm().Lint()
+	_, err = o.Helm().Lint(valuesFiles)
 	if err != nil {
 		return errors.Wrapf(err, "linting the chart '%s'", dir)
 	}
@@ -899,11 +912,14 @@ func (o *CommonOptions) DefaultReleaseCharts() []string {
 }
 
 func (o *CommonOptions) ReleaseChartMuseumUrl() string {
+	if o.RemoteCluster {
+		return ""
+	}
 	chartRepo := os.Getenv("CHART_REPOSITORY")
 	if chartRepo == "" {
 		if o.factory.IsInCDPipeline() {
 			chartRepo = DefaultChartRepo
-			log.Warnf("No $CHART_REPOSITORY defined so using the default value of: %s\n", DefaultChartRepo)
+			log.Logger().Warnf("No $CHART_REPOSITORY defined so using the default value of: %s", DefaultChartRepo)
 		} else {
 			return ""
 		}
@@ -953,6 +969,6 @@ func (o *CommonOptions) ModifyHelmValuesFile(dir string, fn func(string) (string
 		return errors.Wrapf(err, "failed to write file %s", valuesFileName)
 	}
 
-	log.Infof("modified the helm file: %s\n", util.ColorInfo(valuesFileName))
+	log.Logger().Infof("modified the helm file: %s", util.ColorInfo(valuesFileName))
 	return nil
 }

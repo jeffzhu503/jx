@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/spf13/cobra"
 
 	"fmt"
@@ -65,7 +66,7 @@ func NewCmdCreateIssue(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -97,7 +98,7 @@ func (o *CreateIssueOptions) Run() error {
 	if createdIssue == nil {
 		return fmt.Errorf("Failed to create issue: %s", issue.Title)
 	}
-	log.Infof("\nCreated issue %s at %s\n", util.ColorInfo(createdIssue.Name()), util.ColorInfo(createdIssue.URL))
+	log.Logger().Infof("\nCreated issue %s at %s", util.ColorInfo(createdIssue.Name()), util.ColorInfo(createdIssue.URL))
 	return nil
 }
 

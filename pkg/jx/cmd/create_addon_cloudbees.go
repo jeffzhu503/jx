@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	survey "gopkg.in/AlecAivazis/survey.v1"
 
 	"github.com/jenkins-x/jx/pkg/util"
@@ -22,23 +23,23 @@ import (
 const (
 	defaultCloudBeesReleaseName = "cb"
 	defaultCloudBeesNamespace   = "jx"
-	coreRepoName                = "cb"
-	cbServiceName               = "cb-core"
-	coreRepoUrl                 = "https://chartmuseum.jx.charts-demo.cloudbees.com"
+	cbServiceName               = "cb-jxui"
+	cbRepoName                  = "cb"
+	cbRepoURL                   = "https://chartmuseum.jx.charts-demo.cloudbees.com"
 	defaultCloudBeesVersion     = ""
 )
 
 var (
 	CreateAddonCloudBeesLong = templates.LongDesc(`
-		Creates the CloudBees app for Kubernetes addon
+		Creates the CloudBees UI for Jenkins X
 
-		CloudBees app for Kubernetes provides unified Continuous Delivery Environment console to make it easier to do CI/CD and Environments across a number of microservices and teams
+		CloudBees UI for Jenkins X provides unified Continuous Delivery Environment console to make it easier to do CI/CD and Environments across a number of microservices and teams
 
 		For more information please see [https://www.cloudbees.com/blog/want-help-build-cloudbees-kubernetes-jenkins-x](https://www.cloudbees.com/blog/want-help-build-cloudbees-kubernetes-jenkins-x)
 `)
 
 	CreateAddonCloudBeesExample = templates.Examples(`
-		# Create the cloudbees addon 
+		# Create the cloudbees UI 
 		jx create addon cloudbees
 	`)
 )
@@ -65,14 +66,14 @@ func NewCmdCreateAddonCloudBees(commonOpts *opts.CommonOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "cloudbees",
 		Short:   "Create the CloudBees app for Kubernetes (a web console for working with CI/CD, Environments and GitOps)",
-		Aliases: []string{"cloudbee", "cb", "core", "kubecd"},
+		Aliases: []string{"cloudbee", "cb", "ui", "jxui"},
 		Long:    CreateAddonCloudBeesLong,
 		Example: CreateAddonCloudBeesExample,
 		Run: func(cmd *cobra.Command, args []string) {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -102,13 +103,13 @@ func (o *CreateAddonCloudBeesOptions) Run() error {
 
 	// check if Helm repo is missing, the repo is authenticated and includes username/password so check with dummy values
 	// first as we wont need to prompt for username password if the host part of the URL matches an existing repo
-	missing, err := o.IsHelmRepoMissing(coreRepoUrl)
+	missing, _, err := o.Helm().IsRepoMissing(cbRepoURL)
 	if err != nil {
 		return err
 	}
 
 	if missing {
-		log.Infof(`
+		log.Logger().Infof(`
 You will need your username and password to install this addon while it is in preview.
 To register to get your username/password to to: %s
 
@@ -128,14 +129,14 @@ To register to get your username/password to to: %s
 		}
 		survey.AskOne(passPrompt, &password, nil, surveyOpts)
 
-		err := o.AddHelmRepoIfMissing(coreRepoUrl, coreRepoName, username, password)
+		_, err := o.AddHelmBinaryRepoIfMissing(cbRepoURL, cbRepoName, username, password)
 		if err != nil {
 			return err
 		}
 	}
 
 	if o.Sso {
-		log.Infof("Configuring %s...\n", util.ColorInfo("single sign-on"))
+		log.Logger().Infof("Configuring %s...", util.ColorInfo("single sign-on"))
 		_, devNamespace, err := o.KubeClientAndDevNamespace()
 		if err != nil {
 			return errors.Wrap(err, "getting the dev namespace")
@@ -203,8 +204,8 @@ To register to get your username/password to to: %s
 
 	if o.Sso {
 		// wait for cert to be issued
-		certName := pki.CertSecretPrefix + "core"
-		log.Infof("Waiting for cert: %s...\n", util.ColorInfo(certName))
+		certName := pki.CertSecretPrefix + "jxui"
+		log.Logger().Infof("Waiting for cert: %s...", util.ColorInfo(certName))
 		certMngrClient, err := o.CertManagerClient()
 		if err != nil {
 			return errors.Wrap(err, "creating the cert-manager client")
@@ -213,7 +214,7 @@ To register to get your username/password to to: %s
 		if err != nil {
 			return err // this is already wrapped by the previous call
 		}
-		log.Infof("Ready Cert: %s\n", util.ColorInfo(certName))
+		log.Logger().Infof("Ready Cert: %s", util.ColorInfo(certName))
 	}
 
 	if o.Basic {
@@ -254,8 +255,8 @@ To register to get your username/password to to: %s
 			}
 		}
 
-		log.Infof("using exposecontroller config from dev namespace %s\n", devNamespace)
-		log.Infof("target namespace %s\n", o.Namespace)
+		log.Logger().Infof("using exposecontroller config from dev namespace %s", devNamespace)
+		log.Logger().Infof("target namespace %s", o.Namespace)
 
 		// create the ingress rule
 		err = o.Expose(devNamespace, o.Namespace, o.Password)
@@ -264,7 +265,7 @@ To register to get your username/password to to: %s
 		}
 	}
 
-	log.Infof("Addon installed successfully.\n\n  %s Open the app in a browser\n\n", util.ColorInfo("jx cloudbees"))
+	log.Logger().Infof("Addon installed successfully.\n\n  %s opens the app in a browser\n", util.ColorInfo("jx cloudbees"))
 
 	return nil
 }

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/jx/cmd/templates"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -42,7 +43,7 @@ func NewCmdUpgradeCRDs(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	return cmd
@@ -58,6 +59,6 @@ func (o *UpgradeCRDsOptions) Run() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to register all CRDs")
 	}
-	log.Info("Jenkins X CRDs upgraded with success\n")
+	log.Logger().Info("Jenkins X CRDs upgraded with success")
 	return nil
 }

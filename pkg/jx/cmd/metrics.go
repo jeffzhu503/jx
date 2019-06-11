@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+
 	"time"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -52,7 +54,7 @@ func NewCmdMetrics(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 
@@ -132,7 +134,7 @@ func (o *MetricsOptions) Run() error {
 		if err != nil {
 			return err
 		}
-		log.Infof("%s\n", string(data))
+		log.Logger().Infof("%s", string(data))
 		return nil
 	}
 

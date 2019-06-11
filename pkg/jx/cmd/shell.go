@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/jenkins-x/jx/pkg/jx/cmd/helper"
+	survey "gopkg.in/AlecAivazis/survey.v1"
+
 	"github.com/spf13/cobra"
 
 	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
@@ -19,7 +22,6 @@ import (
 	"strings"
 
 	"github.com/jenkins-x/jx/pkg/util"
-	"gopkg.in/AlecAivazis/survey.v1"
 )
 
 const (
@@ -82,7 +84,7 @@ func NewCmdShell(commonOpts *opts.CommonOptions) *cobra.Command {
 			options.Cmd = cmd
 			options.Args = args
 			err := options.Run()
-			CheckErr(err)
+			helper.CheckErr(err)
 		},
 	}
 	cmd.Flags().StringVarP(&options.Filter, "filter", "f", "", "Filter the list of contexts to switch between using the given text")
@@ -164,12 +166,12 @@ func (o *ShellOptions) Run() error {
 	}
 
 	info := util.ColorInfo
-	log.Infof("Creating a new shell using the Kubernetes context %s\n", info(ctxName))
+	log.Logger().Infof("Creating a new shell using the Kubernetes context %s", info(ctxName))
 	if shell != "cmd.exe" {
-		log.Infof("Shell RC file is %s\n\n", tmpRCFileName)
+		log.Logger().Infof("Shell RC file is %s\n", tmpRCFileName)
 	}
-	log.Infof("All changes to the Kubernetes context like changing environment, namespace or context will be local to this shell\n")
-	log.Infof("To return to the global context use the command: exit\n\n")
+	log.Logger().Infof("All changes to the Kubernetes context like changing environment, namespace or context will be local to this shell")
+	log.Logger().Infof("To return to the global context use the command: exit\n")
 
 	e := exec.Command(shell, "-rcfile", tmpRCFileName, "-i")
 	if shell == "zsh" {
@@ -215,13 +217,13 @@ func (o *ShellOptions) PickContext(names []string, defaultValue string) (string,
 
 func (o *ShellOptions) createNewBashPrompt(prompt string) string {
 	if prompt == "" {
-		return "'[\\u@\\h \\W \\$(jx prompt) ]\\$ '"
+		return "'[\\u@\\h \\W $(jx prompt) ]\\$ '"
 	}
 	if strings.Contains(prompt, "jx prompt") {
 		return prompt
 	}
 	if prompt[0] == '"' {
-		return prompt[0:1] + "\\$(jx prompt) " + prompt[1:]
+		return prompt[0:1] + "$(jx prompt) " + prompt[1:]
 	}
 	if prompt[0] == '\'' {
 		return prompt[0:1] + "$(jx prompt) " + prompt[1:]
