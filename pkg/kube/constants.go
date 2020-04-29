@@ -3,15 +3,14 @@ package kube
 const (
 	// DefaultChartMuseumURL default URL for Jenkins X Charts
 	DefaultChartMuseumURL = "https://storage.googleapis.com/chartmuseum.jenkins-x.io"
+	// DefaultChartMuseumJxRepoName default repo name for Jenkins X Charts
+	DefaultChartMuseumJxRepoName = "jenkins-x"
 
 	// ChartAmbassador the default chart for ambassador
 	ChartAmbassador = "datawire/ambassador"
 
 	// ChartAnchore the default chart for the Anchore plugin
 	ChartAnchore = "stable/anchore-engine"
-
-	// ChartCloudBees the default name of the CloudBees addon chart
-	ChartCloudBees = "cb/jxui"
 
 	// ChartExposecontrollerService the default name of the Exposecontroller Service chart for Edit environments
 	ChartExposecontrollerService = "jenkins-x/exposecontroller-service"
@@ -74,14 +73,17 @@ const (
 	DefaultExternalDNSReleaseName = "external-dns"
 	DefaultExternalDNSTag         = "1.5.2"
 
+	// SecretKaniko the name of the secret containing the kaniko service account
+	SecretKaniko = "kaniko-secret"
+
+	// SecretVelero the name of the secret containing the velero service account
+	SecretVelero = "velero-secret" // #nosec
+
 	// ServiceJenkins is the name of the Jenkins Service
 	ServiceJenkins = "jenkins"
 
 	// SecretJenkins is the name of the Jenkins secret
 	SecretJenkins = "jenkins"
-
-	// ServiceCloudBees the service name of the CloudBees UI for Jenkins X
-	ServiceCloudBees = "cb-jxui"
 
 	// ServiceChartMuseum the service name of the Helm ChartMuseum service
 	ServiceChartMuseum = "jenkins-x-chartmuseum"
@@ -92,6 +94,9 @@ const (
 	// SecretJenkinsChartMuseum the chart museum secret
 	SecretJenkinsChartMuseum = "jenkins-x-chartmuseum"
 
+	// SecretBucketRepo the bucket repo secret if using it as a chart repositoru
+	SecretBucketRepo = "jenkins-x-bucketrepo"
+
 	// SecretJenkinsReleaseGPG the GPG secrets for doing releases
 	SecretJenkinsReleaseGPG = "jenkins-release-gpg"
 
@@ -99,16 +104,16 @@ const (
 	SecretJenkinsPipelinePrefix = "jx-pipeline-"
 
 	// SecretJenkinsPipelineAddonCredentials the chat credentials secret
-	SecretJenkinsPipelineAddonCredentials = "jx-pipeline-addon-"
+	SecretJenkinsPipelineAddonCredentials = "jx-pipeline-addon-" // #nosec
 
 	// SecretJenkinsPipelineChatCredentials the chat credentials secret
 	SecretJenkinsPipelineChatCredentials = "jx-pipeline-chat-"
 
 	// SecretJenkinsPipelineGitCredentials the git credentials secret
-	SecretJenkinsPipelineGitCredentials = "jx-pipeline-git-"
+	SecretJenkinsPipelineGitCredentials = "jx-pipeline-git-" // #nosec
 
 	// SecretJenkinsPipelineIssueCredentials the issue tracker credentials secret
-	SecretJenkinsPipelineIssueCredentials = "jx-pipeline-issues-"
+	SecretJenkinsPipelineIssueCredentials = "jx-pipeline-issues-" // #nosec
 
 	// ConfigMapExposecontroller the name of the ConfigMap with the Exposecontroller configuration
 	ConfigMapExposecontroller = "exposecontroller"
@@ -153,6 +158,9 @@ const (
 	// AnnotationDescription the tooltip / texual description of an resource
 	AnnotationDescription = "description"
 
+	// LabelGitSync to indicate whether or not to sync this resource to GitOps
+	LabelGitSync = "jenkins.io/gitSync"
+
 	// LabelKind to indicate the kind of auth, such as Git or Issue
 	LabelKind = "jenkins.io/kind"
 
@@ -174,6 +182,9 @@ const (
 	// ValueKindIssue an issue auth secret/credentials
 	ValueKindIssue = "issue"
 
+	// ValueKindChartmuseum a chartmuseum auth secret/credentials
+	ValueKindChartmuseum = "chartmuseum"
+
 	// ValueKindJenkins an Jenkins App secret/credentials
 	ValueKindJenkins = "jenkins"
 
@@ -194,6 +205,9 @@ const (
 
 	// LabelServiceKind the label to indicate the auto Server's Kind
 	LabelServiceKind = "jenkins.io/service-kind"
+
+	// LabelGithubAppOwner the label to indicate the owner of a repository for github app token secrets
+	LabelGithubAppOwner = "jenkins.io/githubapp-owner"
 
 	// LabelCreatedBy indicates the service that created this resource
 	LabelCreatedBy = "jenkins.io/created-by"
@@ -268,6 +282,10 @@ const (
 	AnnotationLocalDir = "jenkins.io/local-dir"
 	// AnnotationGitURLs the newline separated list of git URLs of the DevPods
 	AnnotationGitURLs = "jenkins.io/git-urls"
+	// AnnotationGitReportState used to annotate what state has been reported to git
+	AnnotationGitReportState = "jenkins.io/git-report-state"
+	// AnnotationGitReportRunningStages used to annotate what stages were last reported to git as running
+	AnnotationGitReportRunningStages = "jenkins.io/git-report-running-stages"
 
 	// AnnotationIsDefaultStorageClass used to indicate a storageclass is default
 	AnnotationIsDefaultStorageClass = "storageclass.kubernetes.io/is-default-class"
@@ -282,7 +300,7 @@ const (
 	SecretDataPassword = "password"
 
 	// SecretBasicAuth the name for the Jenkins X basic auth secret
-	SecretBasicAuth = "jx-basic-auth"
+	SecretBasicAuth = "jx-basic-auth" // #nosec
 
 	// JenkinsAdminApiToken the API token
 	JenkinsAdminApiToken = "jenkins-admin-api-token"
@@ -310,6 +328,9 @@ const (
 	// ClusterName stores the name of the cluster that is created
 	ClusterName = "clusterName"
 
+	// KubeProvider stores the kubernetes provider name
+	KubeProvider = "kubeProvider"
+
 	// SystemVaultName stores the name of the system Vault created on install
 	SystemVaultName = "systemVaultName"
 )
@@ -318,7 +339,6 @@ var (
 	AddonCharts = map[string]string{
 		"ambassador":                    ChartAmbassador,
 		"anchore":                       ChartAnchore,
-		"cb":                            ChartCloudBees,
 		DefaultFlaggerReleaseName:       ChartFlagger,
 		"gitea":                         ChartGitea,
 		"istio":                         ChartIstio,

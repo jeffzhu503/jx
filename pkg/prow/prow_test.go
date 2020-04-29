@@ -1,3 +1,5 @@
+// +build unit
+
 package prow_test
 
 import (
@@ -7,7 +9,7 @@ import (
 	prowconfig "github.com/jenkins-x/jx/pkg/prow/config"
 	"github.com/stretchr/testify/assert"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testclient "k8s.io/client-go/kubernetes/fake"
 
@@ -323,7 +325,7 @@ func TestReplaceProwConfig(t *testing.T) {
 	o.Setup()
 	o.Kind = prowconfig.Environment
 	o.EnvironmentNamespace = "jx-staging"
-	o.Agent = prow.KnativeBuildAgent
+	o.Agent = prow.TektonAgent
 
 	data := make(map[string]string)
 	data["domain"] = "dummy.domain.nip.io"
@@ -394,7 +396,7 @@ func TestReplaceProwConfig(t *testing.T) {
 	assert.Equal(t, 2, len(prowConfig.Tide.Queries[1].Repos))
 
 	p = prowConfig.Presubmits["test/repo"]
-	assert.Equal(t, "knative-build", p[0].Agent)
+	assert.Equal(t, "tekton", p[0].Agent)
 
 	// add test/repo2
 	o.Options.Repos = []string{"test/repo2"}
@@ -490,6 +492,7 @@ func TestGetPostSubmitJob(t *testing.T) {
 
 	assert.NotEmpty(t, job.Name, "job name is empty")
 	assert.Equal(t, "release", job.Name)
+	assert.Contains(t, job.Branches, "^master$")
 }
 
 func getProwConfig(t *testing.T, o TestOptions) (*config.Config, error) {

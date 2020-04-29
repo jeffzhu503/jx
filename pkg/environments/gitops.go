@@ -38,37 +38,55 @@ type ModifyChartFn func(requirements *helm.Requirements, metadata *chart.Metadat
 // EnvironmentPullRequestOptions are options for creating a pull request against an environment.
 // The provide a Gitter client for performing git operations, a GitProvider client for talking to the git provider,
 // a callback ModifyChartFn which is where the changes you want to make are defined,
-// and a ConfigureGitFn which is run allowing you to add external git configuration.
 type EnvironmentPullRequestOptions struct {
 	Gitter        gits.Gitter
 	GitProvider   gits.GitProvider
 	ModifyChartFn ModifyChartFn
-	ConfigGitFn   gits.ConfigureGitFn
+	Labels        []string
 }
 
 // Create a pull request against the environment repository for env.
 // The EnvironmentPullRequestOptions are used to provide a Gitter client for performing git operations,
 // a GitProvider client for talking to the git provider,
-// a callback ModifyChartFn which is where the changes you want to make are defined,
-// and a ConfigureGitFn which is run allowing you to add external git configuration.
+// a callback ModifyChartFn which is where the changes you want to make are defined.
 // The branchNameText defines the branch name used, the title is used for both the commit and the pull request title,
 // the message as the body for both the commit and the pull request,
 // and the pullRequestInfo for any existing PR that exists to modify the environment that we want to merge these
 // changes into.
-func (o *EnvironmentPullRequestOptions) Create(env *jenkinsv1.Environment, environmentsDir string,
-	pullRequestDetails *gits.PullRequestDetails, pullRequestInfo *gits.PullRequestInfo, chartName string, autoMerge bool) (*gits.PullRequestInfo, error) {
-	dir, base, gitInfo, err := gits.ForkAndPullPullRepo(env.Spec.Source.URL, environmentsDir, env.Spec.Source.Ref, pullRequestDetails.BranchName, o.GitProvider, o.Gitter, o.ConfigGitFn)
+func (o *EnvironmentPullRequestOptions) Create(env *jenkinsv1.Environment, prDir string,
+	pullRequestDetails *gits.PullRequestDetails, filter *gits.PullRequestFilter, chartName string, autoMerge bool) (*gits.PullRequestInfo, error) {
+	if prDir == "" {
+		tempDir, err := ioutil.TempDir("", "create-pr")
+		if err != nil {
+			return nil, err
+		}
+		prDir = tempDir
+		defer os.RemoveAll(tempDir)
+	}
+
+	dir, base, upstreamRepo, forkURL, err := gits.ForkAndPullRepo(env.Spec.Source.URL, prDir, env.Spec.Source.Ref, pullRequestDetails.BranchName, o.GitProvider, o.Gitter, "")
 
 	if err != nil {
 		return nil, errors.Wrapf(err, "pulling environment repo %s into %s", env.Spec.Source.URL,
-			environmentsDir)
+			prDir)
 	}
 
 	err = ModifyChartFiles(dir, pullRequestDetails, o.ModifyChartFn, chartName)
 	if err != nil {
 		return nil, err
 	}
-	return gits.PushRepoAndCreatePullRequest(dir, gitInfo, base, pullRequestDetails, pullRequestInfo, true, true, autoMerge, o.GitProvider, o.Gitter)
+	labels := make([]string, 0)
+	labels = append(labels, pullRequestDetails.Labels...)
+	labels = append(labels, o.Labels...)
+	if autoMerge {
+		labels = append(labels, gits.LabelUpdatebot)
+	}
+	pullRequestDetails.Labels = labels
+	prInfo, err := gits.PushRepoAndCreatePullRequest(dir, upstreamRepo, forkURL, base, pullRequestDetails, filter, true, pullRequestDetails.Message, true, false, o.Gitter, o.GitProvider)
+	if err != nil {
+		return nil, err
+	}
+	return prInfo, nil
 }
 
 // ModifyChartFiles modifies the chart files in the given directory using the given modify function
@@ -506,11 +524,10 @@ func AddAppMetaData(chartDir string, app *jenkinsv1.App, repository string) erro
 		app.Annotations = make(map[string]string)
 	}
 	app.Annotations[helm.AnnotationAppDescription] = metadata.GetDescription()
-	repoURL, err := url.Parse(repository)
-	if err != nil {
+	if _, err = url.Parse(repository); err != nil {
 		return errors.Wrap(err, "Invalid repository url")
 	}
-	app.Annotations[helm.AnnotationAppRepository] = util.StripCredentialsFromURL(repoURL)
+	app.Annotations[helm.AnnotationAppRepository] = util.SanitizeURL(repository)
 	if app.Labels == nil {
 		app.Labels = make(map[string]string)
 	}
@@ -545,7 +562,7 @@ func LocateAppResource(helmer helm.Helmer, chartDir string, appName string) (*je
 		},
 		Spec: jenkinsv1.AppSpec{},
 	}
-	err = helmer.Template(chartDir, appName, "", templateWorkDir, false, make([]string, 0), make([]string, 0))
+	err = helmer.Template(chartDir, appName, "", templateWorkDir, false, make([]string, 0), make([]string, 0), make([]string, 0))
 	if err != nil {
 		templateWorkDir = chartDir
 	}

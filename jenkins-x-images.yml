@@ -4,7 +4,7 @@ pipelineConfig:
     pullRequest:
       pipeline:
         agent:
-          image: rawlingsj/executor:dev31
+          image: gcr.io/kaniko-project/executor:9912ccbf8d22bbafbf971124600fbb0b13b9cbd6
         stages:
           - name: ci
             environment:
@@ -22,8 +22,20 @@ pipelineConfig:
                 value: http://jenkins-x-athens-proxy:80
               - name: PARALLEL_BUILDS
                 value: "2"
+              - name: GOOGLE_APPLICATION_CREDENTIALS
+                value: /secrets/kaniko/kaniko-secret.json
             options:
+              volumes:
+                - name: kaniko-secret
+                  secret:
+                    secretName: kaniko-secret
+                    items:
+                      - key: kaniko-secret
+                        path: kaniko/kaniko-secret.json
               containerOptions:
+                volumeMounts:
+                  - name: kaniko-secret
+                    mountPath: /secrets
                 resources:
                   limits:
                     cpu: 4
@@ -31,34 +43,38 @@ pipelineConfig:
                   requests:
                     cpu: 3
                     memory: 3072Mi
-
             steps:
               - name: build-binary
-                image: docker.io/golang:1.11.5
+                image: docker.io/golang:1.12.4
                 command: make
                 args: ['linux']
 
               - name: validate-binary
-                image: docker.io/golang:1.11.5
+                image: docker.io/golang:1.12.4
                 command: "./build/linux/jx"
                 args: ['help']
 
               - name: build-and-push-image
-                image: rawlingsj/executor:dev40
                 command: /kaniko/executor
-                args: ['--dockerfile=/workspace/source/Dockerfile','--destination=docker.io/jenkinsxio/jx:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
+                args: ['--dockerfile=/workspace/source/Dockerfile','--destination=gcr.io/jenkinsxio/jx:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
 
               - name: build-and-push-nodejs
-                image: rawlingsj/executor:dev40
                 command: /kaniko/executor
-                args: ['--dockerfile=/workspace/source/Dockerfile.builder-nodejs','--destination=docker.io/jenkinsxio/builder-nodejs:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
+                args: ['--dockerfile=/workspace/source/Dockerfile.builder-nodejs','--destination=gcr.io/jenkinsxio/builder-nodejs:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
 
               - name: build-and-push-maven
-                image: rawlingsj/executor:dev40
                 command: /kaniko/executor
-                args: ['--dockerfile=/workspace/source/Dockerfile.builder-maven','--destination=docker.io/jenkinsxio/builder-maven:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
+                args: ['--dockerfile=/workspace/source/Dockerfile.builder-maven','--destination=gcr.io/jenkinsxio/builder-maven:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
 
               - name: build-and-push-go
-                image: rawlingsj/executor:dev40
                 command: /kaniko/executor
-                args: ['--dockerfile=/workspace/source/Dockerfile.builder-go','--destination=docker.io/jenkinsxio/builder-go:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
+                args: ['--dockerfile=/workspace/source/Dockerfile.builder-go','--destination=gcr.io/jenkinsxio/builder-go:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
+
+              - name: build-and-push-go-maven
+                command: /kaniko/executor
+                args: ['--dockerfile=/workspace/source/Dockerfile.builder-go-maven','--destination=gcr.io/jenkinsxio/builder-go-maven:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
+
+              - name: build-and-push-ml
+                command: /kaniko/executor
+                args: ['--dockerfile=/workspace/source/Dockerfile.builder-ml','--destination=gcr.io/jenkinsxio/builder-machine-learning:${inputs.params.version}','--context=/workspace/source','--cache-repo=jenkins-x-docker-registry.jx.svc.cluster.local:5000/','--cache=true','--cache-dir=/workspace','--skip-tls-verify-registry=jenkins-x-docker-registry.jx.svc.cluster.local:5000']
+

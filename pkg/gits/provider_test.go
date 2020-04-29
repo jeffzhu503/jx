@@ -1,3 +1,5 @@
+// +build unit
+
 package gits_test
 
 import (
@@ -7,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/gits"
@@ -55,7 +58,7 @@ func Test_getOrganizations(t *testing.T) {
 }
 
 func createAuthConfigSvc(authConfig *auth.AuthConfig, fileName string) *auth.ConfigService {
-	authConfigSvc, _ := auth.NewFileAuthConfigService(fileName)
+	authConfigSvc, _ := auth.NewFileAuthConfigService(fileName, "")
 	authConfigSvc.SetConfig(authConfig)
 	return &authConfigSvc
 }
@@ -71,17 +74,23 @@ func createAuthConfig(currentServer *auth.AuthServer, piplineServer, pipelineUse
 }
 
 func createAuthServer(url string, name string, kind string, currentUser *auth.UserAuth, users ...*auth.UserAuth) *auth.AuthServer {
-	users = append(users, currentUser)
+	if currentUser != nil {
+		users = append(users, currentUser)
+	}
+	currentUsername := ""
+	if currentUser != nil {
+		currentUsername = currentUser.Username
+	}
 	return &auth.AuthServer{
 		URL:         url,
 		Name:        name,
 		Kind:        kind,
 		Users:       users,
-		CurrentUser: currentUser.Username,
+		CurrentUser: currentUsername,
 	}
 }
 
-func createGitProvider(t *testing.T, kind string, server *auth.AuthServer, user *auth.UserAuth, git gits.Gitter) gits.GitProvider {
+func createGitProvider(t assert.TestingT, kind string, server *auth.AuthServer, user *auth.UserAuth, git gits.Gitter) gits.GitProvider {
 	switch kind {
 	case gits.KindGitHub:
 		gitHubProvider, err := gits.NewGitHubProvider(server, user, git)
@@ -137,24 +146,27 @@ func getAndCleanEnviron(kind string) (map[string]string, error) {
 	return util.GetAndCleanEnviron(keys)
 }
 
-func restoreEnviron(t *testing.T, environ map[string]string) {
+func restoreEnviron(t assert.TestingT, environ map[string]string) {
 	err := util.RestoreEnviron(environ)
 	assert.NoError(t, err, "should restore the env variable")
 }
 
 func TestCreateGitProviderFromURL(t *testing.T) {
-	t.Parallel()
+	// This test is setting some environment variable which is causing other tests creating the git
+	// provider to fail when executed in parallel.
+	// t.Parallel()
 	utiltests.SkipForWindows(t, "go-expect does not work on Windows")
 
 	git := mocks.NewMockGitter()
 
 	tests := []struct {
 		description  string
-		setup        func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{})
+		setup        func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{})
 		cleanup      func(c *utiltests.ConsoleWrapper, donech chan struct{})
 		Name         string
 		providerKind string
 		hostURL      string
+		ghOwner      string
 		git          gits.Gitter
 		numUsers     int
 		currUser     int
@@ -170,7 +182,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"GitHub",
 			gits.KindGitHub,
-			"https://github.com",
+			"https://github.com", "",
 			git,
 			1,
 			0,
@@ -186,7 +198,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"GitHub",
 			gits.KindGitHub,
-			"https://github.com",
+			"https://github.com", "",
 			git,
 			2,
 			1,
@@ -202,7 +214,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"GitHub",
 			gits.KindGitHub,
-			"https://github.com",
+			"https://github.com", "",
 			git,
 			2,
 			1,
@@ -214,7 +226,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			false,
 		},
 		{"create GitHub provider for user from environment",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				err := setUserAuthInEnv(gits.KindGitHub, "test", "test")
 				assert.NoError(t, err, "should configure the user auth in environment")
 				console := utiltests.NewTerminal(t, nil)
@@ -234,7 +246,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"GitHub",
 			gits.KindGitHub,
-			"https://github.com",
+			"https://github.com", "",
 			git,
 			0,
 			0,
@@ -250,7 +262,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"GitHub",
 			gits.KindGitHub,
-			"https://github.com",
+			"https://github.com", "",
 			git,
 			0,
 			0,
@@ -262,7 +274,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			true,
 		},
 		{"create GitHub provider in interactive mode",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				c := utiltests.NewTerminal(t, nil)
 				assert.NotNil(t, c, "console should not be nil")
 				assert.NotNil(t, c.Stdio, "term should not be nil")
@@ -284,7 +296,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"GitHub",
 			gits.KindGitHub,
-			"https://github.com",
+			"https://github.com", "",
 			git,
 			0,
 			0,
@@ -300,7 +312,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"Gitlab",
 			gits.KindGitlab,
-			"https://gitlab.com",
+			"https://github.com", "",
 			git,
 			1,
 			0,
@@ -316,7 +328,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"Gitlab",
 			gits.KindGitHub,
-			"https://gitlab.com",
+			"https://gitlab.com", "",
 			git,
 			2,
 			1,
@@ -328,7 +340,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			false,
 		},
 		{"create Gitlab provider for user from environment",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				err := setUserAuthInEnv(gits.KindGitlab, "test", "test")
 				assert.NoError(t, err, "should configure the user auth in environment")
 				c := utiltests.NewTerminal(t, nil)
@@ -347,7 +359,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"Gitlab",
 			gits.KindGitlab,
-			"https://gitlab.com",
+			"https://gitlab.com", "",
 			git,
 			0,
 			0,
@@ -363,7 +375,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"Gitlab",
 			gits.KindGitlab,
-			"https://gitlab.com",
+			"https://gitlab.com", "",
 			git,
 			0,
 			0,
@@ -375,7 +387,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			true,
 		},
 		{"create Gitlab provider in interactive mode",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				c := utiltests.NewTerminal(t, nil)
 				assert.NotNil(t, c, "console should not be nil")
 				assert.NotNil(t, c.Stdio, "term should not be nil")
@@ -397,7 +409,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"Gitlab",
 			gits.KindGitlab,
-			"https://gitlab.com",
+			"https://gitlab.com", "",
 			git,
 			0,
 			0,
@@ -413,7 +425,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"Gitea",
 			gits.KindGitea,
-			"https://gitea.com",
+			"https://gitea.com", "",
 			git,
 			1,
 			0,
@@ -429,7 +441,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"Gitea",
 			gits.KindGitea,
-			"https://gitea.com",
+			"https://gitea.com", "",
 			git,
 			2,
 			1,
@@ -441,7 +453,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			false,
 		},
 		{"create Gitea provider for user from environment",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				err := setUserAuthInEnv(gits.KindGitea, "test", "test")
 				assert.NoError(t, err, "should configure the user auth in environment")
 				c := utiltests.NewTerminal(t, nil)
@@ -460,7 +472,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"Gitea",
 			gits.KindGitea,
-			"https://gitea.com",
+			"https://gitea.com", "",
 			git,
 			0,
 			0,
@@ -476,7 +488,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"Gitea",
 			gits.KindGitea,
-			"https://gitea.com",
+			"https://gitea.com", "",
 			git,
 			0,
 			0,
@@ -488,7 +500,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			true,
 		},
 		{"create Gitea provider in interactive mode",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				c := utiltests.NewTerminal(t, nil)
 				assert.NotNil(t, c, "console should not be nil")
 				assert.NotNil(t, c.Stdio, "term should not be nil")
@@ -510,7 +522,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"Gitea",
 			gits.KindGitea,
-			"https://gitea.com",
+			"https://gitea.com", "",
 			git,
 			0,
 			0,
@@ -526,7 +538,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"BitbucketServer",
 			gits.KindBitBucketServer,
-			"https://bitbucket-server.com",
+			"https://bitbucket-server.com", "",
 			git,
 			1,
 			0,
@@ -542,7 +554,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"BitbucketServer",
 			gits.KindBitBucketServer,
-			"https://bitbucket-server.com",
+			"https://bitbucket-server.com", "",
 			git,
 			2,
 			1,
@@ -554,7 +566,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			false,
 		},
 		{"create BitbucketServer provider for user from environment",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				err := setUserAuthInEnv(gits.KindBitBucketServer, "test", "test")
 				assert.NoError(t, err, "should configure the user auth in environment")
 				c := utiltests.NewTerminal(t, nil)
@@ -573,7 +585,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"BitbucketServer",
 			gits.KindBitBucketServer,
-			"https://bitbucket-server.com",
+			"https://bitbucket-server.com", "",
 			git,
 			0,
 			0,
@@ -589,7 +601,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"BitbucketServer",
 			gits.KindBitBucketServer,
-			"https://bitbucket-server.com",
+			"https://bitbucket-server.com", "",
 			git,
 			0,
 			0,
@@ -601,7 +613,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			true,
 		},
 		{"create BitbucketServer provider in interactive mode",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				c := utiltests.NewTerminal(t, nil)
 				assert.NotNil(t, c, "console should not be nil")
 				assert.NotNil(t, c.Stdio, "term should not be nil")
@@ -623,7 +635,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"BitbucketServer",
 			gits.KindBitBucketServer,
-			"https://bitbucket-server.com",
+			"https://bitbucket-server.com", "",
 			git,
 			0,
 			0,
@@ -639,7 +651,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"BitbucketCloud",
 			gits.KindBitBucketCloud,
-			"https://bitbucket.org",
+			"https://bitbucket.org", "",
 			git,
 			1,
 			0,
@@ -655,7 +667,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"BitbucketCloud",
 			gits.KindBitBucketCloud,
-			"https://bitbucket.org",
+			"https://bitbucket.org", "",
 			git,
 			2,
 			1,
@@ -667,7 +679,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			false,
 		},
 		{"create BitbucketCloud provider for user from environment",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				err := setUserAuthInEnv(gits.KindBitBucketCloud, "test", "test")
 				assert.NoError(t, err, "should configure the user auth in environment")
 				c := utiltests.NewTerminal(t, nil)
@@ -686,7 +698,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"BitbucketCloud",
 			gits.KindBitBucketCloud,
-			"https://bitbucket.org",
+			"https://bitbucket.org", "",
 			git,
 			0,
 			0,
@@ -702,7 +714,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			nil,
 			"BitbucketCloud",
 			gits.KindBitBucketCloud,
-			"https://bitbucket.org",
+			"https://bitbucket.org", "",
 			git,
 			0,
 			0,
@@ -714,7 +726,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			true,
 		},
 		{"create BitbucketCloud provider in interactive mode",
-			func(t *testing.T) (*utiltests.ConsoleWrapper, chan struct{}) {
+			func(t assert.TestingT) (*utiltests.ConsoleWrapper, chan struct{}) {
 				c := utiltests.NewTerminal(t, nil)
 				assert.NotNil(t, c, "console should not be nil")
 				assert.NotNil(t, c.Stdio, "term should not be nil")
@@ -736,7 +748,7 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 			},
 			"BitbucketCloud",
 			gits.KindBitBucketCloud,
-			"https://bitbucket.org",
+			"https://bitbucket.org", "",
 			git,
 			0,
 			0,
@@ -751,83 +763,136 @@ func TestCreateGitProviderFromURL(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.description, func(t *testing.T) {
-			environ, err := getAndCleanEnviron(tc.providerKind)
-			assert.NoError(t, err, "should clean the env variables")
-			defer restoreEnviron(t, environ)
+			utiltests.Retry(t, 5, 10*time.Second, func(r *utiltests.R) {
 
-			var console *utiltests.ConsoleWrapper
-			var donech chan struct{}
-			if tc.setup != nil {
-				console, donech = tc.setup(t)
-			}
+				environ, err := getAndCleanEnviron(tc.providerKind)
+				assert.NoError(r, err, "should clean the env variables")
+				defer restoreEnviron(r, environ)
 
-			var users []*auth.UserAuth
-			var currUser *auth.UserAuth
-			var pipelineUser *auth.UserAuth
-			var server *auth.AuthServer
-			var authSvc *auth.ConfigService
-			configFile, err := ioutil.TempFile("", "test-config")
-			defer os.Remove(configFile.Name())
-			if tc.numUsers > 0 {
-				for u := 1; u <= tc.numUsers; u++ {
-					user := &auth.UserAuth{
-						Username: fmt.Sprintf("%s-%d", tc.username, u),
-						ApiToken: fmt.Sprintf("%s-%d", tc.apiToken, u),
+				var console *utiltests.ConsoleWrapper
+				var donech chan struct{}
+				if tc.setup != nil {
+					console, donech = tc.setup(r)
+				}
+
+				var users []*auth.UserAuth
+				var currUser *auth.UserAuth
+				var pipelineUser *auth.UserAuth
+				var server *auth.AuthServer
+				var authSvc *auth.ConfigService
+				configFile, err := ioutil.TempFile("", "test-config")
+				defer os.Remove(configFile.Name())
+				if tc.numUsers > 0 {
+					for u := 1; u <= tc.numUsers; u++ {
+						user := &auth.UserAuth{
+							Username: fmt.Sprintf("%s-%d", tc.username, u),
+							ApiToken: fmt.Sprintf("%s-%d", tc.apiToken, u),
+						}
+						users = append(users, user)
 					}
-					users = append(users, user)
-				}
-				assert.True(t, len(users) > tc.currUser, "current user index should be smaller than number of users")
-				currUser = users[tc.currUser]
-				pipelineUser = users[tc.pipelineUser]
-				if len(users) > 1 {
-					users = append(users[:tc.currUser], users[tc.currUser+1:]...)
+					assert.True(r, len(users) > tc.currUser, "current user index should be smaller than number of users")
+					currUser = users[tc.currUser]
+					pipelineUser = users[tc.pipelineUser]
+					if len(users) > 1 {
+						users = append(users[:tc.currUser], users[tc.currUser+1:]...)
+					} else {
+						users = []*auth.UserAuth{}
+					}
+					server = createAuthServer(tc.hostURL, tc.Name, tc.providerKind, currUser, users...)
+					authSvc = createAuthConfigSvc(createAuthConfig(server, server.URL, pipelineUser.Username), configFile.Name())
 				} else {
-					users = []*auth.UserAuth{}
+					currUser = &auth.UserAuth{
+						Username: tc.username,
+						ApiToken: tc.apiToken,
+					}
+					server = createAuthServer(tc.hostURL, tc.Name, tc.providerKind, currUser, users...)
+					s, err := auth.NewFileAuthConfigService(configFile.Name(), "")
+					authSvc = &s
+					assert.NoError(r, err)
 				}
-				server = createAuthServer(tc.hostURL, tc.Name, tc.providerKind, currUser, users...)
-				authSvc = createAuthConfigSvc(createAuthConfig(server, server.URL, pipelineUser.Username), configFile.Name())
-			} else {
-				currUser = &auth.UserAuth{
-					Username: tc.username,
-					ApiToken: tc.apiToken,
-				}
-				server = createAuthServer(tc.hostURL, tc.Name, tc.providerKind, currUser, users...)
-				s, err := auth.NewFileAuthConfigService(configFile.Name())
-				authSvc = &s
-				assert.NoError(t, err)
-			}
 
-			var result gits.GitProvider
-			if console != nil {
-				result, err = gits.CreateProviderForURL(tc.inCluster, *authSvc, tc.providerKind, tc.hostURL, tc.git, tc.batchMode, console.In, console.Out, console.Err)
-			} else {
-				result, err = gits.CreateProviderForURL(tc.inCluster, *authSvc, tc.providerKind, tc.hostURL, tc.git, tc.batchMode, nil, nil, nil)
-			}
-			if tc.wantError {
-				assert.Error(t, err, "should fail to create provider")
-				assert.Nil(t, result, "created provider should be nil")
-			} else {
-				assert.NoError(t, err, "should create provider without error")
-				assert.NotNil(t, result, "created provider should not be nil")
-				if tc.inCluster {
-					want := createGitProvider(t, tc.providerKind, server, pipelineUser, tc.git)
-					assert.NotNil(t, want, "expected provider should not be nil")
-					assertProvider(t, want, result)
+				var result gits.GitProvider
+				handles := util.IOFileHandles{}
+				if console != nil {
+					handles.In = console.In
+					handles.Out = console.Out
+					handles.Err = console.Err
+				}
+				result, err = gits.CreateProviderForURL(tc.inCluster, *authSvc, tc.providerKind, tc.hostURL, tc.ghOwner, tc.git, tc.batchMode, handles)
+				if tc.wantError {
+					assert.Error(r, err, "should fail to create provider")
+					assert.Nil(r, result, "created provider should be nil")
 				} else {
-					want := createGitProvider(t, tc.providerKind, server, currUser, tc.git)
-					assert.NotNil(t, want, "expected provider should not be nil")
-					assertProvider(t, want, result)
+					assert.NoError(r, err, "should create provider without error")
+					assert.NotNil(r, result, "created provider should not be nil")
+					if tc.inCluster {
+						want := createGitProvider(r, tc.providerKind, server, pipelineUser, tc.git)
+						assert.NotNil(r, want, "expected provider should not be nil")
+						assertProvider(r, want, result)
+					} else {
+						want := createGitProvider(r, tc.providerKind, server, currUser, tc.git)
+						assert.NotNil(r, want, "expected provider should not be nil")
+						assertProvider(r, want, result)
+					}
 				}
-			}
 
-			if tc.cleanup != nil {
-				tc.cleanup(console, donech)
-			}
+				if tc.cleanup != nil {
+					tc.cleanup(console, donech)
+				}
+			})
 		})
 	}
 }
 
-func assertProvider(t *testing.T, want gits.GitProvider, result gits.GitProvider) {
+func Test_ShortSha(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		SHA              string
+		expectedShortSHA string
+	}{
+		{"", ""},
+		{"f73f71c", "f73f71c"},
+		{"f73f71cd6", "f73f71cd6"},
+		{"f73f71cd6856a3854f05c37f1833b3e3e96a5b8a", "f73f71cd6"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%s-%s", t.Name(), testCase.SHA), func(t *testing.T) {
+			commit := gits.GitCommit{
+				SHA: testCase.SHA,
+			}
+			assert.Equal(t, testCase.expectedShortSHA, commit.ShortSha())
+		})
+	}
+}
+
+func Test_Subject(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		SHA             string
+		Message         string
+		expectedSubject string
+	}{
+		{"1", "", ""},
+		{"2", "subject only", "subject only"},
+		{"3", "subject\nbody", "subject"},
+		{"4", "subject\nbody line 1\nbody line 2", "subject"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%s-%s", t.Name(), testCase.SHA), func(t *testing.T) {
+			commit := gits.GitCommit{
+				SHA:     testCase.SHA,
+				Message: testCase.Message,
+			}
+			assert.Equal(t, testCase.expectedSubject, commit.Subject())
+		})
+	}
+}
+
+func assertProvider(t assert.TestingT, want gits.GitProvider, result gits.GitProvider) {
 	assert.Equal(t, want.Kind(), result.Kind())
 	assert.Equal(t, want.ServerURL(), result.ServerURL())
 	assert.Equal(t, want.UserAuth(), result.UserAuth())

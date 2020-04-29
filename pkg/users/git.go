@@ -3,9 +3,9 @@ package users
 import (
 	"fmt"
 
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 
-	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/pkg/errors"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -60,7 +60,7 @@ func (r *GitUserResolver) GitUserSliceAsUserDetailsSlice(users []gits.GitUser) (
 // * making a call to the gitProvider
 // as often user info is not complete in a git response
 func (r *GitUserResolver) Resolve(user *gits.GitUser) (*jenkinsv1.User, error) {
-	if user == nil {
+	if r == nil || user == nil {
 		return nil, nil
 	}
 	selectUsers := func(id string, users []jenkinsv1.User) (string, []jenkinsv1.User,
@@ -86,7 +86,7 @@ func (r *GitUserResolver) Resolve(user *gits.GitUser) (*jenkinsv1.User, error) {
 			}
 		}
 		new := r.GitUserToUser(gitUser)
-		id = gitUser.Login
+		id = naming.ToValidName(gitUser.Login)
 		// Check if the user id is available, if not append "-<n>" where <n> is some integer
 		for i := 0; true; i++ {
 			_, err := r.JXClient.JenkinsV1().Users(r.Namespace).Get(id, v1.GetOptions{})
@@ -95,9 +95,10 @@ func (r *GitUserResolver) Resolve(user *gits.GitUser) (*jenkinsv1.User, error) {
 			}
 			id = fmt.Sprintf("%s-%d", gitUser.Login, i)
 		}
-		new.Name = kube.ToValidName(id)
+		new.Name = naming.ToValidName(id)
 		return id, possibles, new, nil
 	}
+	user.Login = naming.ToValidValue(user.Login)
 	return Resolve(user.Login, r.GitProviderKey(), r.JXClient, r.Namespace, selectUsers)
 }
 
@@ -159,6 +160,9 @@ func (r *GitUserResolver) GitUserLogin(user *jenkinsv1.User) string {
 
 // GitProviderKey returns the provider key for this GitUserResolver
 func (r *GitUserResolver) GitProviderKey() string {
+	if r == nil || r.GitProvider == nil {
+		return ""
+	}
 	return fmt.Sprintf("jenkins.io/git-%s-userid", r.GitProvider.Kind())
 }
 

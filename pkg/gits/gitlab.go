@@ -2,17 +2,20 @@ package gits
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	errors2 "github.com/pkg/errors"
 
 	"github.com/google/go-github/github"
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
-	gitlab "github.com/xanzy/go-gitlab"
+	"github.com/xanzy/go-gitlab"
 )
 
 type GitlabProvider struct {
@@ -72,6 +75,11 @@ func (g *GitlabProvider) ListReleases(org string, name string) ([]*GitRelease, e
 	return answer, nil
 }
 
+// GetRelease returns the release info for the org, repo name and tag
+func (g *GitlabProvider) GetRelease(org string, name string, tag string) (*GitRelease, error) {
+	return nil, nil
+}
+
 func getRepositories(g *gitlab.Client, username string, org string, searchFilter string) ([]*gitlab.Project, *gitlab.Response, error) {
 	// TODO: handle the case of more than "pageSize" results, similarly to ListOpenPullRequests().
 	gitlabSearchFilter := gitlab.String(searchFilter)
@@ -113,12 +121,18 @@ func GetOwnerNamespaceID(g *gitlab.Client, owner string) (int, error) {
 }
 
 func fromGitlabProject(p *gitlab.Project) *GitRepository {
+	org := ""
+	if p.Namespace != nil {
+		org = p.Namespace.Name
+	}
 	return &GitRepository{
-		Name:     p.Name,
-		HTMLURL:  p.WebURL,
-		SSHURL:   p.SSHURLToRepo,
-		CloneURL: p.HTTPURLToRepo,
-		Fork:     p.ForkedFromProject != nil,
+		Organisation: org,
+		Project:      org,
+		Name:         p.Name,
+		HTMLURL:      p.WebURL,
+		SSHURL:       p.SSHURLToRepo,
+		CloneURL:     p.HTTPURLToRepo,
+		Fork:         p.ForkedFromProject != nil,
 	}
 }
 
@@ -158,7 +172,7 @@ func (g *GitlabProvider) GetRepository(org, name string) (*GitRepository, error)
 	if err != nil {
 		return nil, err
 	}
-	project, response, err := g.Client.Projects.GetProject(pid)
+	project, response, err := g.Client.Projects.GetProject(pid, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("request: %s failed due to: %s", response.Request.URL, err)
 	}
@@ -210,7 +224,7 @@ func (g *GitlabProvider) ForkRepository(originalOrg, name, destinationOrg string
 	if err != nil {
 		return nil, err
 	}
-	project, _, err := g.Client.Projects.ForkProject(pid)
+	project, _, err := g.Client.Projects.ForkProject(pid, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +283,46 @@ func (g *GitlabProvider) CreatePullRequest(data *GitPullRequestArguments) (*GitP
 	return fromMergeRequest(mr, owner, repo), nil
 }
 
+// UpdatePullRequest updates pull request with number using data
+func (g *GitlabProvider) UpdatePullRequest(data *GitPullRequestArguments, number int) (*GitPullRequest, error) {
+	owner := data.GitRepository.Organisation
+	repo := data.GitRepository.Name
+	title := data.Title
+	body := data.Body
+	base := data.Base
+
+	o := &gitlab.UpdateMergeRequestOptions{
+		Title:       &title,
+		Description: &body,
+	}
+
+	if base != "" {
+		o.TargetBranch = &base
+	}
+
+	pid, err := g.projectId(owner, g.Username, repo)
+	if err != nil {
+		return nil, err
+	}
+	mr, resp, err := g.Client.MergeRequests.UpdateMergeRequest(pid, number, o)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			data, err2 := ioutil.ReadAll(resp.Body)
+			if err2 == nil && len(data) > 0 {
+				return nil, errors2.Wrapf(err, "response: %s", string(data))
+			}
+		}
+		return nil, err
+	}
+
+	return &GitPullRequest{
+		URL:    mr.WebURL,
+		Owner:  owner,
+		Repo:   repo,
+		Number: &mr.IID,
+	}, nil
+}
+
 func fromMergeRequest(mr *gitlab.MergeRequest, owner, repo string) *GitPullRequest {
 	merged := false
 	if mr.MergedAt != nil {
@@ -283,6 +337,7 @@ func fromMergeRequest(mr *gitlab.MergeRequest, owner, repo string) *GitPullReque
 		Repo:           repo,
 		Number:         &mr.IID,
 		State:          &mr.State,
+		Labels:         convertPullRequestLabels(mr.Labels),
 		Title:          mr.Title,
 		Body:           mr.Description,
 		MergeCommitSHA: &mr.MergeCommitSHA,
@@ -301,7 +356,7 @@ func (g *GitlabProvider) UpdatePullRequestStatus(pr *GitPullRequest) error {
 	if err != nil {
 		return err
 	}
-	mr, _, err := g.Client.MergeRequests.GetMergeRequest(pid, *pr.Number)
+	mr, _, err := g.Client.MergeRequests.GetMergeRequest(pid, *pr.Number, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -427,16 +482,47 @@ func (g *GitlabProvider) ListCommitStatus(org string, repo string, sha string) (
 }
 
 // UpdateCommitStatus updates the commit status
-func (g *GitlabProvider) UpdateCommitStatus(org string, repo string, sha string, status *GitRepoStatus) (*GitRepoStatus, error) {
-	return &GitRepoStatus{}, errors.New("TODO")
+func (g *GitlabProvider) UpdateCommitStatus(owner string, repo string, sha string, status *GitRepoStatus) (*GitRepoStatus, error) {
+	pid, err := g.projectId(owner, g.Username, repo)
+	if err != nil {
+		return nil, err
+	}
+	glState := gitlab.BuildStateValue(status.State)
+	if status.State == "failure" {
+		glState = gitlab.Failed
+	}
+	statusOptions := &gitlab.SetCommitStatusOptions{
+		State:       glState,
+		Name:        &status.Context,
+		Context:     &status.Context,
+		Description: &status.Description,
+		TargetURL:   &status.TargetURL,
+	}
+	c, _, err := g.Client.Commits.SetCommitStatus(pid, sha, statusOptions, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &GitRepoStatus{
+		ID:          strconv.Itoa(c.ID),
+		Description: c.Description,
+		State:       c.Status,
+		Context:     c.Name,
+		TargetURL:   c.TargetURL,
+	}, err
 }
 
 func fromCommitStatus(status *gitlab.CommitStatus) *GitRepoStatus {
+	jxState := status.Status
+	if status.Status == "failed" {
+		jxState = "failure"
+	}
 	return &GitRepoStatus{
 		ID:          string(status.ID),
 		URL:         status.TargetURL,
-		State:       status.Status,
+		TargetURL:   status.TargetURL,
+		State:       jxState,
 		Description: status.Description,
+		Context:     status.Name,
 	}
 }
 
@@ -458,25 +544,66 @@ func (g *GitlabProvider) CreateWebHook(data *GitWebHookArguments) error {
 		return nil
 	}
 
+	flag := true
 	owner := owner(data.Owner, g.Username)
 	webhookURL := util.UrlJoin(data.URL, owner, data.Repo.Name)
 	opt := &gitlab.AddProjectHookOptions{
-		URL:   &webhookURL,
-		Token: &data.Secret,
+		URL:                 &webhookURL,
+		Token:               &data.Secret,
+		PushEvents:          &flag,
+		MergeRequestsEvents: &flag,
+		IssuesEvents:        &flag,
+		NoteEvents:          &flag,
 	}
-
 	_, _, err = g.Client.Projects.AddProjectHook(pid, opt)
 	return err
 }
 
 // ListWebHooks lists the webhooks
 func (g *GitlabProvider) ListWebHooks(owner string, repo string) ([]*GitWebHookArguments, error) {
-	webHooks := []*GitWebHookArguments{}
-	return webHooks, fmt.Errorf("not implemented!")
+	answer := []*GitWebHookArguments{}
+	pid, err := g.projectId(owner, g.Username, repo)
+	if err != nil {
+		return answer, err
+	}
+	opt := &gitlab.ListProjectHooksOptions{}
+	hooks, _, err := g.Client.Projects.ListProjectHooks(pid, opt, nil)
+	for _, hook := range hooks {
+		answer = append(answer, gitLabToGitHook(owner, repo, hook))
+	}
+	return answer, err
+}
+
+func gitLabToGitHook(owner string, repo string, hook *gitlab.ProjectHook) *GitWebHookArguments {
+	return &GitWebHookArguments{
+		ID:    int64(hook.ID),
+		Owner: owner,
+		Repo: &GitRepository{
+			Organisation: owner,
+			Name:         repo,
+		},
+		URL: hook.URL,
+	}
 }
 
 func (g *GitlabProvider) UpdateWebHook(data *GitWebHookArguments) error {
-	return fmt.Errorf("not implemented!")
+	pid, err := g.projectId(data.Owner, g.Username, data.Repo.Name)
+	if err != nil {
+		return nil
+	}
+	flag := true
+	owner := owner(data.Owner, g.Username)
+	webhookURL := util.UrlJoin(data.URL, owner, data.Repo.Name)
+	opt := &gitlab.EditProjectHookOptions{
+		URL:                 &webhookURL,
+		Token:               &data.Secret,
+		PushEvents:          &flag,
+		MergeRequestsEvents: &flag,
+		IssuesEvents:        &flag,
+		NoteEvents:          &flag,
+	}
+	_, _, err = g.Client.Projects.EditProjectHook(pid, int(data.ID), opt)
+	return err
 }
 
 func (g *GitlabProvider) SearchIssues(org, repo, query string) ([]*GitIssue, error) {
@@ -512,7 +639,6 @@ func (g *GitlabProvider) GetIssue(org, repo string, number int) (*GitIssue, erro
 	if err != nil {
 		return nil, err
 	}
-
 	issue, _, err := g.Client.Issues.GetIssue(pid, number)
 	if err != nil {
 		return nil, err
@@ -529,10 +655,11 @@ func (g *GitlabProvider) CreateIssue(owner string, repo string, issue *GitIssue)
 		}
 	}
 
+	gitlabLabels := gitlab.Labels(labels)
 	opt := &gitlab.CreateIssueOptions{
 		Title:       &issue.Title,
 		Description: &issue.Body,
-		Labels:      labels,
+		Labels:      &gitlabLabels,
 	}
 
 	pid, err := g.projectId(owner, g.Username, repo)
@@ -653,6 +780,20 @@ func (g *GitlabProvider) UserAuth() auth.UserAuth {
 	return g.User
 }
 
+func (g *GitlabProvider) getUserID(username string) (*int, error) {
+	users, _, err := g.Client.Users.ListUsers(&gitlab.ListUsersOptions{Username: &username})
+
+	if err != nil {
+		return nil, err
+	}
+	if len(users) == 0 {
+		return nil, nil
+	}
+
+	user := users[0]
+	return &user.ID, nil
+}
+
 func (g *GitlabProvider) UserInfo(username string) *GitUser {
 	users, _, err := g.Client.Users.ListUsers(&gitlab.ListUsersOptions{Username: &username})
 
@@ -675,6 +816,11 @@ func (g *GitlabProvider) UpdateRelease(owner string, repo string, tag string, re
 	return nil
 }
 
+// UpdateReleaseStatus is not supported for this git provider
+func (g *GitlabProvider) UpdateReleaseStatus(owner string, repo string, tag string, releaseInfo *GitRelease) error {
+	return nil
+}
+
 // IssueURL returns the URL of the issue
 func (g *GitlabProvider) IssueURL(org string, name string, number int, isPull bool) string {
 	return ""
@@ -682,8 +828,22 @@ func (g *GitlabProvider) IssueURL(org string, name string, number int, isPull bo
 
 // AddCollaborator adds a collaborator
 func (g *GitlabProvider) AddCollaborator(user string, organisation string, repo string) error {
-	log.Logger().Infof("Automatically adding the pipeline user as a collaborator is currently not implemented for gitlab. Please add user: %v as a collaborator to this project.", user)
-	return nil
+	pid, err := g.projectId(organisation, g.Username, repo)
+	if err != nil {
+		return err
+	}
+
+	userId, err := g.getUserID(user)
+	if err != nil {
+		return err
+	}
+	accessLevel := gitlab.DeveloperPermissions
+	opts := &gitlab.AddProjectMemberOptions{
+		UserID:      userId,
+		AccessLevel: &accessLevel,
+	}
+	_, _, err = g.Client.ProjectMembers.AddProjectMember(pid, opts)
+	return err
 }
 
 // ListInvitations lists pending invites
@@ -723,5 +883,85 @@ func (g *GitlabProvider) ListCommits(owner, repo string, opt *ListCommitsArgumen
 
 // AddLabelsToIssue adds labels to issues or pullrequests
 func (g *GitlabProvider) AddLabelsToIssue(owner, repo string, number int, labels []string) error {
-	return fmt.Errorf("Getting content not supported on gitlab yet")
+	pr, err := g.GetPullRequest(owner, &GitRepository{Name: repo}, number)
+	if err != nil {
+		return err
+	}
+	labelMap := make(map[string]struct{})
+	for _, l := range pr.Labels {
+		if l.Name != nil {
+			labelMap[*l.Name] = struct{}{}
+		}
+	}
+	for _, l := range labels {
+		labelMap[l] = struct{}{}
+	}
+
+	glLabels := gitlab.Labels{}
+
+	for l := range labelMap {
+		glLabels = append(glLabels, l)
+	}
+	o := &gitlab.UpdateMergeRequestOptions{
+		Labels: &glLabels,
+	}
+
+	pid, err := g.projectId(owner, g.Username, repo)
+	if err != nil {
+		return err
+	}
+	_, resp, err := g.Client.MergeRequests.UpdateMergeRequest(pid, number, o)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			data, err2 := ioutil.ReadAll(resp.Body)
+			if err2 == nil && len(data) > 0 {
+				return errors2.Wrapf(err, "response: %s", string(data))
+			}
+		}
+		return err
+	}
+
+	return nil
+}
+
+// GetLatestRelease fetches the latest release from the git provider for org and name
+func (g *GitlabProvider) GetLatestRelease(org string, name string) (*GitRelease, error) {
+	// TODO
+	return nil, nil
+}
+
+// UploadReleaseAsset will upload an asset to org/repo to a release with id, giving it a name, it will return the release asset from the git provider
+func (g *GitlabProvider) UploadReleaseAsset(org string, repo string, id int64, name string, asset *os.File) (*GitReleaseAsset, error) {
+	return nil, nil
+}
+
+// GetBranch returns the branch information for an owner/repo, including the commit at the tip
+func (g *GitlabProvider) GetBranch(owner string, repo string, branch string) (*GitBranch, error) {
+	return nil, nil
+}
+
+// GetProjects returns all the git projects in owner/repo
+func (g *GitlabProvider) GetProjects(owner string, repo string) ([]GitProject, error) {
+	return nil, nil
+}
+
+//ConfigureFeatures sets specific features as enabled or disabled for owner/repo
+func (g *GitlabProvider) ConfigureFeatures(owner string, repo string, issues *bool, projects *bool, wikis *bool) (*GitRepository, error) {
+	return nil, nil
+}
+
+// IsWikiEnabled returns true if a wiki is enabled for owner/repo
+func (g *GitlabProvider) IsWikiEnabled(owner string, repo string) (bool, error) {
+	return false, nil
+}
+
+func convertPullRequestLabels(from gitlab.Labels) []*Label {
+	var labels []*Label
+	for _, label := range from {
+		l := label
+		labels = append(labels, &Label{
+			Name: &l,
+		})
+	}
+	return labels
 }

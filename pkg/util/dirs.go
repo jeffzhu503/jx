@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/jenkins-x/jx/cmd/codegen/util"
 	"github.com/jenkins-x/jx/pkg/log"
 )
 
@@ -16,6 +17,18 @@ func HomeDir() string {
 		h = "."
 	}
 	return h
+}
+
+// GitCredentialsFile returns the location of the git credentials file
+func GitCredentialsFile() string {
+	cfgHome := os.Getenv("XDG_CONFIG_HOME")
+	if cfgHome == "" {
+		cfgHome = util.HomeDir()
+	}
+	if cfgHome == "" {
+		cfgHome = "."
+	}
+	return filepath.Join(cfgHome, "git", "credentials")
 }
 
 func DraftDir() (string, error) {
@@ -43,6 +56,15 @@ func ConfigDir() (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+// LocalFileSystemSecretsDir returns the default local file system secrets location for the file system alternative to vault
+func LocalFileSystemSecretsDir() (string, error) {
+	home, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, "localSecrets"), nil
 }
 
 // KubeConfigFile gets the .kube/config file

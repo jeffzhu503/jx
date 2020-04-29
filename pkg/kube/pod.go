@@ -3,10 +3,12 @@ package kube
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	v1 "k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -30,6 +32,15 @@ func IsPodReady(pod *v1.Pod) bool {
 func IsPodCompleted(pod *v1.Pod) bool {
 	phase := pod.Status.Phase
 	if phase == v1.PodSucceeded || phase == v1.PodFailed {
+		return true
+	}
+	return false
+}
+
+// IsPodSucceeded returns true if a pod is succeeded
+func IsPodSucceeded(pod *v1.Pod) bool {
+	phase := pod.Status.Phase
+	if phase == v1.PodSucceeded {
 		return true
 	}
 	return false
@@ -74,6 +85,16 @@ func GetPodCondition(status *v1.PodStatus, conditionType v1.PodConditionType) (i
 		}
 	}
 	return -1, nil
+}
+
+// GetCurrentPod returns the current pod the code is running in or nil if it cannot be deduced
+func GetCurrentPod(kubeClient kubernetes.Interface, ns string) (*v1.Pod, error) {
+	name := os.Getenv("HOSTNAME")
+	if name == "" {
+		return nil, nil
+	}
+	name = naming.ToValidName(name)
+	return kubeClient.CoreV1().Pods(ns).Get(name, meta_v1.GetOptions{})
 }
 
 func waitForPodSelector(client kubernetes.Interface, namespace string, options meta_v1.ListOptions,
@@ -241,10 +262,15 @@ func GetContainersWithStatusAndIsInit(pod *v1.Pod) ([]v1.Container, []v1.Contain
 	statuses := pod.Status.InitContainerStatuses
 	containers := pod.Spec.Containers
 
-	if len(containers) > 1 && len(pod.Status.ContainerStatuses) == len(containers) && containers[len(containers)-1].Name == "nop" {
+	if len(containers) > 1 && len(pod.Status.ContainerStatuses) == len(containers) {
 		isInit = false
-		// Add the non-init containers, and trim off the no-op container at the end of the list.
-		allContainers = append(allContainers, containers[:len(containers)-1]...)
+		// Add the non-init containers
+		// If there's a "nop" container at the end, the pod was created with before Tekton 0.5.x, so trim off the no-op container at the end of the list.
+		if containers[len(containers)-1].Name == "nop" {
+			allContainers = append(allContainers, containers[:len(containers)-1]...)
+		} else {
+			allContainers = append(allContainers, containers...)
+		}
 		// Since status ordering is unpredictable, don't trim here - we'll be sorting/filtering below anyway.
 		statuses = append(statuses, pod.Status.ContainerStatuses...)
 	}

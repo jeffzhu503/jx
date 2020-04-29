@@ -1,12 +1,15 @@
+// +build unit
+
 package helm_test
 
 import (
 	"fmt"
-	"github.com/jenkins-x/jx/pkg/kube/mocks"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
+
+	kube_test "github.com/jenkins-x/jx/pkg/kube/mocks"
 
 	"github.com/jenkins-x/jx/pkg/helm"
 	"github.com/stretchr/testify/assert"
@@ -151,6 +154,12 @@ func TestIsRepoMissing(t *testing.T) {
 
 	assert.NoError(t, err, "search missing repos should not return an error")
 	assert.True(t, missing, "should not find url '%s'", url)
+
+	url = "http://127.0.0.1:8879/chartsv2"
+	missing, _, err = helm.IsRepoMissing(url)
+
+	assert.NoError(t, err, "search missing repos should not return an error")
+	assert.True(t, missing, "should not find url '%s'", url)
 }
 
 func TestUpdateRepo(t *testing.T) {
@@ -186,27 +195,29 @@ func TestBuildDependency(t *testing.T) {
 }
 
 func TestInstallChart(t *testing.T) {
-	value := []string{"test"}
+	value := []string{"test=true"}
+	valueString := []string{"context=test"}
 	valueFile := []string{"./myvalues.yaml"}
 	expectedArgs := []string{"install", "--wait", "--name", releaseName, "--namespace", namespace,
-		chart, "--set", value[0], "--values", valueFile[0]}
+		chart, "--set", value[0], "--set-string", valueString[0], "--values", valueFile[0]}
 	helm, runner := createHelm(t, nil, "")
 
-	err := helm.InstallChart(chart, releaseName, namespace, "", -1, value, valueFile, "", "", "")
+	err := helm.InstallChart(chart, releaseName, namespace, "", -1, value, valueString, valueFile, "", "", "")
 	assert.NoError(t, err, "should install the chart without any error")
 	verifyArgs(t, helm, runner, expectedArgs...)
 }
 
 func TestUpgradeChart(t *testing.T) {
-	value := []string{"test"}
+	value := []string{"test=true"}
+	valueString := []string{"context=test"}
 	valueFile := []string{"./myvalues.yaml"}
 	version := "0.0.1"
 	timeout := 600
 	expectedArgs := []string{"upgrade", "--namespace", namespace, "--install", "--wait", "--force",
-		"--timeout", fmt.Sprintf("%d", timeout), "--version", version, "--set", value[0], "--values", valueFile[0], releaseName, chart}
+		"--timeout", fmt.Sprintf("%d", timeout), "--version", version, "--set", value[0], "--set-string", valueString[0], "--values", valueFile[0], releaseName, chart}
 	helm, runner := createHelm(t, nil, "")
 
-	err := helm.UpgradeChart(chart, releaseName, namespace, version, true, timeout, true, true, value, valueFile, "", "", "")
+	err := helm.UpgradeChart(chart, releaseName, namespace, version, true, timeout, true, true, value, valueString, valueFile, "", "", "")
 
 	assert.NoError(t, err, "should upgrade the chart without any error")
 	verifyArgs(t, helm, runner, expectedArgs...)
@@ -297,7 +308,11 @@ func TestStatusReleasesForHelm3(t *testing.T) {
 }
 
 func TestLint(t *testing.T) {
-	expectedArgs := []string{"lint"}
+	expectedArgs := []string{"lint",
+		"--set", "tags.jx-lint=true",
+		"--set", "global.jxLint=true",
+		"--set-string", "global.jxTypeEnv=lint",
+	}
 	expectedOutput := "test"
 	helm, runner := createHelm(t, nil, expectedOutput)
 
@@ -309,15 +324,33 @@ func TestLint(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	expectedArgs := []string{"version", "--short"}
-	expectedOutput := "1.0.0"
-	helm, runner := createHelm(t, nil, expectedOutput)
+	var versionTests = []struct {
+		versionString           string
+		expectedSemanticVersion string
+		shouldError             bool
+	}{
+		{"Client: v2.16.3+g1ee0254", "2.16.3", false},
+		{"v3.0.3+gac925eb", "3.0.3", false},
+		{"3.0.3+gac925eb", "3.0.3", false},
+		{"", "", true},
+		{"foo", "", true},
+	}
 
-	output, err := helm.Version(false)
+	for _, versionTest := range versionTests {
+		t.Run(versionTest.versionString, func(t *testing.T) {
+			helm, runner := createHelm(t, nil, versionTest.versionString)
+			actualVersion, err := helm.Version(false)
 
-	assert.NoError(t, err, "should get the version without any error")
-	verifyArgs(t, helm, runner, expectedArgs...)
-	assert.Equal(t, expectedOutput, output)
+			if versionTest.shouldError {
+				assert.Error(t, err, "should not be able to get semantic version from version output")
+				assert.Equal(t, versionTest.expectedSemanticVersion, actualVersion)
+			} else {
+				assert.NoError(t, err, "should get the version without any error")
+				verifyArgs(t, helm, runner, "version", "--short", "--client")
+				assert.Equal(t, versionTest.expectedSemanticVersion, actualVersion)
+			}
+		})
+	}
 }
 
 func TestSearchChartVersions(t *testing.T) {
@@ -325,13 +358,13 @@ func TestSearchChartVersions(t *testing.T) {
 	expectedArgs := []string{"search", chart, "--versions"}
 	helm, runner := createHelm(t, nil, expectedOutput)
 
-	versions, err := helm.SearchChartVersions(chart)
+	versions, err := helm.SearchCharts(chart, true)
 
 	assert.NoError(t, err, "should search chart versions without any error")
 	verifyArgs(t, helm, runner, expectedArgs...)
 	expectedVersions := []string{"0.0.1481", "0.0.1480", "0.0.1479"}
 	for i, version := range versions {
-		assert.Equal(t, expectedVersions[i], version, "should parse the version '%s'", version)
+		assert.Equal(t, expectedVersions[i], version.ChartVersion, "should parse the version '%s'", version)
 	}
 }
 

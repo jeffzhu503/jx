@@ -1,7 +1,9 @@
 package gits
 
 import (
+	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/google/go-github/github"
@@ -41,6 +43,8 @@ type GitProvider interface {
 	ValidateRepositoryName(org string, name string) error
 
 	CreatePullRequest(data *GitPullRequestArguments) (*GitPullRequest, error)
+
+	UpdatePullRequest(data *GitPullRequestArguments, number int) (*GitPullRequest, error)
 
 	UpdatePullRequestStatus(pr *GitPullRequest) error
 
@@ -84,7 +88,7 @@ type GitProvider interface {
 
 	IssueURL(org string, name string, number int, isPull bool) string
 
-	SearchIssues(org string, name string, query string) ([]*GitIssue, error)
+	SearchIssues(org string, name string, state string) ([]*GitIssue, error)
 
 	SearchIssuesClosedSince(org string, name string, t time.Time) ([]*GitIssue, error)
 
@@ -98,7 +102,15 @@ type GitProvider interface {
 
 	UpdateRelease(owner string, repo string, tag string, releaseInfo *GitRelease) error
 
+	UpdateReleaseStatus(owner string, repo string, tag string, releaseInfo *GitRelease) error
+
 	ListReleases(org string, name string) ([]*GitRelease, error)
+
+	GetRelease(org string, name string, tag string) (*GitRelease, error)
+
+	UploadReleaseAsset(org string, repo string, id int64, name string, asset *os.File) (*GitReleaseAsset, error)
+
+	GetLatestRelease(org string, name string) (*GitRelease, error)
 
 	GetContent(org string, name string, path string, ref string) (*GitFileContent, error)
 
@@ -148,14 +160,23 @@ type GitProvider interface {
 	// TODO Refactor to remove bespoke types when we implement another provider
 	AcceptInvitation(int64) (*github.Response, error)
 
-	// ShouldForkForPullReques treturns true if we should create a personal fork of this repository
+	// ShouldForkForPullRequest returns true if we should create a personal fork of this repository
 	// before creating a pull request
 	ShouldForkForPullRequest(originalOwner string, repoName string, username string) bool
+
+	GetBranch(owner string, repo string, branch string) (*GitBranch, error)
+
+	GetProjects(owner string, repo string) ([]GitProject, error)
+
+	IsWikiEnabled(owner string, repo string) (bool, error)
+
+	ConfigureFeatures(owner string, repo string, issues *bool, projects *bool, wikis *bool) (*GitRepository, error)
 }
 
 // Gitter defines common git actions used by Jenkins X via git cli
 //go:generate pegomock generate github.com/jenkins-x/jx/pkg/gits Gitter -o mocks/gitter.go
 type Gitter interface {
+	Config(dir string, args ...string) error
 	FindGitConfigDir(dir string) (string, string, error)
 	PrintCreateRepositoryGenerateAccessToken(server *auth.AuthServer, username string, o io.Writer)
 
@@ -174,16 +195,19 @@ type Gitter interface {
 
 	Init(dir string) error
 	Clone(url string, directory string) error
+	CloneBare(dir string, url string) error
+	PushMirror(dir string, url string) error
 
 	// ShallowCloneBranch TODO not sure if this method works any more - consider using ShallowClone(dir, url, branch, "")
 	ShallowCloneBranch(url string, branch string, directory string) error
 	ShallowClone(dir string, url string, commitish string, pullRequest string) error
 	FetchUnshallow(dir string) error
 	IsShallow(dir string) (bool, error)
-	Push(dir string) error
+	Push(dir string, remote string, force bool, refspec ...string) error
 	PushMaster(dir string) error
 	PushTag(dir string, tag string) error
-	CreatePushURL(cloneURL string, userAuth *auth.UserAuth) (string, error)
+	// CreateAuthenticatedURL adds username and password into the specified git URL.
+	CreateAuthenticatedURL(url string, userAuth *auth.UserAuth) (string, error)
 	ForcePushBranch(dir string, localBranch string, remoteBranch string) error
 	CloneOrPull(url string, directory string) error
 	Pull(dir string) error
@@ -200,24 +224,33 @@ type Gitter interface {
 	DiscoverUpstreamGitURL(gitConf string) (string, error)
 	RemoteBranches(dir string) ([]string, error)
 	RemoteBranchNames(dir string, prefix string) ([]string, error)
+	RemoteMergedBranchNames(dir string, prefix string) ([]string, error)
 	GetRemoteUrl(config *gitcfg.Config, name string) string
 	RemoteUpdate(dir string) error
 	LocalBranches(dir string) ([]string, error)
+	Remotes(dir string) ([]string, error)
 
 	Branch(dir string) (string, error)
 	CreateBranchFrom(dir string, branchName string, startPoint string) error
 	CreateBranch(dir string, branch string) error
 	CheckoutRemoteBranch(dir string, branch string) error
 	Checkout(dir string, branch string) error
+	CheckoutCommitFiles(dir string, commit string, files []string) error
 	CheckoutOrphan(dir string, branch string) error
 	ConvertToValidBranchName(name string) string
 	FetchBranch(dir string, repo string, refspec ...string) error
 	FetchBranchShallow(dir string, repo string, refspec ...string) error
 	FetchBranchUnshallow(dir string, repo string, refspec ...string) error
 	Merge(dir string, commitish string) error
-	ResetHard(dir string, commitish string) error
+	MergeTheirs(dir string, commitish string) error
+	Reset(dir string, commitish string, hard bool) error
+	RebaseTheirs(dir string, upstream string, branch string, skipEmpty bool) error
+	CherryPick(dir string, commitish string) error
+	CherryPickTheirs(dir string, commitish string) error
+	CherryPickTheirsKeepRedundantCommits(dir string, commitish string) error
 
-	Stash(dir string) error
+	StashPush(dir string) error
+	StashPop(dir string) error
 
 	Remove(dir, fileName string) error
 	RemoveForce(dir, fileName string) error
@@ -227,30 +260,49 @@ type Gitter interface {
 	CommitIfChanges(dir string, message string) error
 	CommitDir(dir string, message string) error
 	AddCommit(dir string, msg string) error
+	AddCommitFiles(dir string, msg string, files []string) error
 	HasChanges(dir string) (bool, error)
+	HasFileChanged(dir string, fileName string) (bool, error)
 	Diff(dir string) (string, error)
 	ListChangedFilesFromBranch(dir string, branch string) (string, error)
 	LoadFileFromBranch(dir string, branch string, file string) (string, error)
 
 	GetLatestCommitMessage(dir string) (string, error)
-	GetPreviousGitTagSHA(dir string) (string, error)
-	GetCurrentGitTagSHA(dir string) (string, error)
+	GetCommitPointedToByPreviousTag(dir string) (string, string, error)
+	GetCommitPointedToByLatestTag(dir string) (string, string, error)
+	GetCommitPointedToByTag(dir string, tag string) (string, error)
 	FetchTags(dir string) error
+	FetchRemoteTags(dir string, repo string) error
 	Tags(dir string) ([]string, error)
+	FilterTags(dir string, filter string) ([]string, error)
 	CreateTag(dir string, tag string, msg string) error
 	GetLatestCommitSha(dir string) (string, error)
+	GetFirstCommitSha(dir string) (string, error)
+	GetCommits(dir string, start string, end string) ([]GitCommit, error)
+	RevParse(dir string, rev string) (string, error)
+	GetCommitsNotOnAnyRemote(dir string, branch string) ([]GitCommit, error)
+	Describe(dir string, contains bool, commitish string, abbrev string, fallback bool) (string, string, error)
+	IsAncestor(dir string, possibleAncestor string, commitish string) (bool, error)
 
 	GetRevisionBeforeDate(dir string, t time.Time) (string, error)
 	GetRevisionBeforeDateText(dir string, dateText string) (string, error)
 	DeleteRemoteBranch(dir string, remoteName string, branch string) error
-}
+	DeleteLocalBranch(dir string, branch string) error
 
-// ConfigureGitFn callback to optionally configure git before its used for creating commits and PRs
-type ConfigureGitFn func(dir string, gitInfo *GitRepository, gitAdapter Gitter) error
+	SetUpstreamTo(dir string, branch string) error
+
+	WriteRepoAttributes(dir string, contents string) error
+	ReadRepoAttributes(dir string) (string, error)
+}
 
 // PullRequestDetails is the details for creating a pull request
 type PullRequestDetails struct {
 	Message    string
 	BranchName string
 	Title      string
+	Labels     []string
+}
+
+func (p *PullRequestDetails) String() string {
+	return fmt.Sprintf("Branch Name: %s; Title: %s; Message: %s", p.BranchName, p.Title, p.Message)
 }

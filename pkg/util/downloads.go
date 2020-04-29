@@ -80,6 +80,21 @@ func GetLatestVersionStringFromGitHub(githubOwner, githubRepo string) (string, e
 	return "", fmt.Errorf("Unable to find the latest version for github.com/%s/%s", githubOwner, githubRepo)
 }
 
+// GetLatestVersionStringFromBucketURLs return the latest version from a list of buckets with the version at the end of the path
+func GetLatestVersionStringFromBucketURLs(versionStrings []string) (semver.Version, error) {
+	versions := make([]semver.Version, 0)
+	for _, versionStr := range versionStrings {
+		versionPaths := strings.Split(versionStr, "/")
+		version, err := semver.New(versionPaths[len(versionPaths)-2])
+		if err != nil {
+			return semver.Version{}, err
+		}
+		versions = append(versions, *version)
+	}
+	semver.Sort(versions)
+	return versions[len(versions)-1], nil
+}
+
 // GetLatestReleaseFromGitHub gets the latest Release from a specific github repo
 func GetLatestReleaseFromGitHub(githubOwner, githubRepo string) (string, error) {
 	// Github has low (60/hour) unauthenticated limits from a single IP address. Try to get the latest release via HTTP
@@ -94,6 +109,24 @@ func GetLatestReleaseFromGitHub(githubOwner, githubRepo string) (string, error) 
 	}
 
 	return version, err
+}
+
+// GetLatestReleaseFromGitHubURL returns the latest release version for the git URL
+func GetLatestReleaseFromGitHubURL(gitURL string) (string, error) {
+	const gitHubPrefix = "https://github.com/"
+	if !strings.HasPrefix(gitURL, gitHubPrefix) {
+		log.Logger().Warnf("cannot determine the latest release of version stream git URL %s\n", gitURL)
+		return "", nil
+	}
+	name := strings.TrimPrefix(gitURL, gitHubPrefix)
+	paths := strings.Split(name, "/")
+	if len(paths) <= 1 {
+		log.Logger().Warnf("cannot parse git URL %s so cannot determine the latest release\n", gitURL)
+		return "", nil
+	}
+	owner := paths[0]
+	repo := strings.TrimSuffix(paths[1], ".git")
+	return GetLatestReleaseFromGitHub(owner, repo)
 }
 
 func getLatestReleaseFromGithubUsingApi(githubOwner, githubRepo string) (string, error) {
@@ -156,19 +189,19 @@ func getLatestReleaseFromHostUsingHttpRedirect(host, githubOwner, githubRepo str
 
 // GetLatestFullTagFromGithub gets the latest 'full' tag from a specific github repo. This (at present) ignores releases
 // with a hyphen in it, usually used with -SNAPSHOT, or -RC1 or -beta
-func GetLatestFullTagFromGithub(githubOwner, githubRepo string) (string, error) {
+func GetLatestFullTagFromGithub(githubOwner, githubRepo string) (*github.RepositoryTag, error) {
 	tags, err := GetTagsFromGithub(githubOwner, githubRepo)
 	if err == nil {
 		// Iterate over the tags to find the first that doesn't contain any hyphens in it (so is just x.y.z)
 		for _, tag := range tags {
 			name := *tag.Name
 			if !strings.ContainsRune(name, '-') {
-				return name, nil
+				return tag, nil
 			}
 		}
-		return "", errors.Errorf("No Full releases found for %s/%s", githubOwner, githubRepo)
+		return nil, errors.Errorf("No Full releases found for %s/%s", githubOwner, githubRepo)
 	}
-	return "", err
+	return nil, err
 }
 
 // GetLatestTagFromGithub gets the latest (in github order) tag from a specific github repo
@@ -201,7 +234,7 @@ func preamble() (*github.Client, *github.RepositoryRelease, *github.Response, er
 			ts := oauth2.StaticTokenSource(
 				&oauth2.Token{AccessToken: token},
 			)
-			tc = oauth2.NewClient(oauth2.NoContext, ts)
+			tc = oauth2.NewClient(context.TODO(), ts)
 		}
 		githubClient = github.NewClient(tc)
 	}
@@ -252,23 +285,7 @@ func UnTargz(tarball, target string, onlyFiles []string) error {
 		}
 
 		path := filepath.Join(target, path.Base(header.Name))
-		info := header.FileInfo()
-		if info.IsDir() {
-			if err = os.MkdirAll(path, info.Mode()); err != nil {
-				return err
-			}
-			continue
-		}
-
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode())
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-		_, err = io.Copy(file, tarReader)
-		if err != nil {
-			return err
-		}
+		UnTarFile(header, path, tarReader)
 	}
 	return nil
 }
@@ -299,23 +316,31 @@ func UnTargzAll(tarball, target string) error {
 		}
 
 		path := filepath.Join(target, header.Name)
-		info := header.FileInfo()
-		if info.IsDir() {
-			if err = os.MkdirAll(path, info.Mode()); err != nil {
-				return err
-			}
-			continue
-		}
-
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode())
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-		_, err = io.Copy(file, tarReader)
-		if err != nil {
-			return err
-		}
+		UnTarFile(header, path, tarReader)
 	}
 	return nil
+}
+
+// UnTarFile extracts one file from the tar, or creates a directory
+func UnTarFile(header *tar.Header, target string, tarReader io.Reader) error {
+	info := header.FileInfo()
+	if info.IsDir() {
+		if err := os.MkdirAll(target, info.Mode()); err != nil {
+			return err
+		}
+		return nil
+	}
+	// In a normal archive, directories are mentionned before their files
+	// But in an archive generated by helm, no directories are mentionned
+	if err := os.MkdirAll(path.Dir(target), 0755); err != nil {
+		return err
+	}
+
+	file, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode())
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	_, err = io.Copy(file, tarReader)
+	return err
 }

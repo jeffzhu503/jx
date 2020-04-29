@@ -1,11 +1,13 @@
 package kube
 
 import (
-	"github.com/pkg/errors"
 	"sort"
 	"strings"
 
-	"github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
+	"github.com/jenkins-x/jx/pkg/kube/naming"
+	"github.com/pkg/errors"
+
+	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/client/clientset/versioned"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -72,7 +74,7 @@ func CreateTeam(ns string, name string, members []string) *v1.Team {
 	kind := v1.TeamKindTypeCD
 	team := &v1.Team{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      ToValidName(name),
+			Name:      naming.ToValidName(name),
 			Namespace: ns,
 		},
 		Spec: v1.TeamSpec{

@@ -7,6 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	"github.com/pkg/errors"
 
 	"github.com/jenkins-x/jx/pkg/client/clientset/versioned"
@@ -32,6 +38,7 @@ type PipelineActivityKey struct {
 	LastCommitURL     string
 	GitInfo           *gits.GitRepository
 	PullRefs          map[string]string
+	Context           string
 }
 
 func (k *PipelineActivityKey) IsValid() bool {
@@ -62,6 +69,7 @@ type PipelineDetails struct {
 	BranchName    string
 	Pipeline      string
 	Build         string
+	Context       string
 }
 
 // PipelineID is an identifier for a Pipeline.
@@ -105,6 +113,7 @@ func CreatePipelineDetails(activity *v1.PipelineActivity) *PipelineDetails {
 	repoName := spec.GitRepository
 	buildNumber := spec.Build
 	branchName := ""
+	context := spec.Context
 	pipeline := spec.Pipeline
 	if pipeline != "" {
 		paths := strings.Split(pipeline, "/")
@@ -130,6 +139,7 @@ func CreatePipelineDetails(activity *v1.PipelineActivity) *PipelineDetails {
 		BranchName:    branchName,
 		Pipeline:      pipeline,
 		Build:         buildNumber,
+		Context:       context,
 	}
 }
 
@@ -174,25 +184,9 @@ func GenerateBuildNumber(activities typev1.PipelineActivityInterface, pipelines 
 	return build, answer, nil
 }
 
-func createSourceRepositoryIfMissing(jxClient versioned.Interface, ns string, activityKey *PipelineActivityKey) error {
-	repoName := activityKey.GitRepository()
-	owner := activityKey.GitOwner()
-	gitURL := activityKey.GitURL()
-
-	if repoName == "" || owner == "" || gitURL == "" {
-		return nil
-	}
-	srs := jxClient.JenkinsV1().SourceRepositories(ns)
-	if srs == nil {
-		return fmt.Errorf("failed to create sourcerepository resource")
-	}
-	_, err := GetOrCreateSourceRepository(jxClient, ns, repoName, owner, gits.GitProviderURL(gitURL))
-	return err
-}
-
 // GetOrCreate gets or creates the pipeline activity
 func (k *PipelineActivityKey) GetOrCreate(jxClient versioned.Interface, ns string) (*v1.PipelineActivity, bool, error) {
-	name := ToValidName(k.Name)
+	name := naming.ToValidName(k.Name)
 	create := false
 	defaultActivity := &v1.PipelineActivity{
 		ObjectMeta: metav1.ObjectMeta{
@@ -223,13 +217,6 @@ func (k *PipelineActivityKey) GetOrCreate(jxClient versioned.Interface, ns strin
 	oldSpec := a.Spec
 	oldLabels := a.Labels
 
-	if a.Labels == nil || a.Labels[v1.LabelSourceRepository] == "" {
-		err := createSourceRepositoryIfMissing(jxClient, ns, k)
-		if err != nil {
-			log.Logger().Errorf("Error trying to create missing sourcerepository object: %s", err.Error())
-		}
-	}
-
 	updateActivity(k, a)
 
 	if k.isPRBuild() {
@@ -243,7 +230,7 @@ func (k *PipelineActivityKey) GetOrCreate(jxClient versioned.Interface, ns strin
 		answer, err := activitiesClient.Create(a)
 		return answer, true, err
 	} else {
-		if !reflect.DeepEqual(&a.Spec, &oldSpec) || !reflect.DeepEqual(&a.Labels, &oldLabels) {
+		if !reflect.DeepEqual(&a.Spec, &oldSpec) || !reflect.DeepEqual(a.Labels, oldLabels) {
 			answer, err := activitiesClient.PatchUpdate(a)
 			if err != nil {
 				return answer, false, err
@@ -257,17 +244,7 @@ func (k *PipelineActivityKey) GetOrCreate(jxClient versioned.Interface, ns strin
 
 func (k *PipelineActivityKey) reconcileBatchBuildIndividualPR(activitiesClient typev1.PipelineActivityInterface, currentActivity *v1.PipelineActivity) error {
 	log.Logger().Info("Checking if batch build reconciling is needed")
-	//Create a selector for other runs of this PR with the same last commit SHA
-	labels := currentActivity.Labels
-	selector := fmt.Sprintf("lastCommitSha in (%s), branch in (%s), sourcerepository in (%s)",
-		labels[v1.LabelLastCommitSha], labels[v1.LabelBranch], labels[v1.LabelSourceRepository])
-
-	listOptions := metav1.ListOptions{
-		LabelSelector: selector,
-	}
-
-	log.Logger().Debugf("looking for PipelineActivities with selector %s", selector)
-	activities, err := activitiesClient.List(listOptions)
+	activities, err := k.findMatchingPipelineActivitiesWithSameCommitSHA(activitiesClient, currentActivity)
 	if err != nil {
 		return errors.Wrap(err, "there was a problem listing all activities to reconcile a batch build")
 	}
@@ -289,7 +266,7 @@ func (k *PipelineActivityKey) reconcileBatchBuildIndividualPR(activitiesClient t
 			if buildNumber, err := strconv.Atoi(v.Spec.Build); err == nil {
 				//Check if it's the previous build, then we can update the PRs and the batch build
 				if previousBuildNumber == buildNumber {
-					log.Logger().Infof("Found an earlier PipelineActivity for %s and equal lastCommitSha with batch information", labels[v1.LabelBranch])
+					log.Logger().Infof("Found an earlier PipelineActivity for %s and equal lastCommitSha with batch information", currentActivity.Labels[v1.LabelBranch])
 					currentActivity.Spec.BatchPipelineActivity.BatchBuildNumber = v.Spec.BatchPipelineActivity.BatchBuildNumber
 					return updateBatchBuildComprisingPRs(activitiesClient, currentActivity, v.Spec.BatchPipelineActivity.BatchBuildNumber, &v)
 				}
@@ -299,9 +276,29 @@ func (k *PipelineActivityKey) reconcileBatchBuildIndividualPR(activitiesClient t
 	return nil
 }
 
+func (k *PipelineActivityKey) findMatchingPipelineActivitiesWithSameCommitSHA(activitiesClient typev1.PipelineActivityInterface, currentActivity *v1.PipelineActivity) (*v1.PipelineActivityList, error) {
+	//Create a selector for other runs of this PR with the same last commit SHA
+	lastCommitSHARequirement, err := labels.NewRequirement("lastCommitSha", selection.In, []string{currentActivity.Labels[v1.LabelLastCommitSha]})
+	if err != nil {
+		return nil, err
+	}
+
+	branchRequirement, err := labels.NewRequirement("branch", selection.In, []string{currentActivity.Labels[v1.LabelBranch]})
+	if err != nil {
+		return nil, err
+	}
+	labelSelector := labels.NewSelector().Add(*lastCommitSHARequirement).Add(*branchRequirement)
+
+	gitOwnerSelector := fields.OneTermEqualSelector("spec.gitOwner", currentActivity.Spec.GitOwner)
+	gitRepoSelector := fields.OneTermEqualSelector("spec.gitRepository", currentActivity.Spec.GitRepository)
+	fieldSelector := fields.AndSelectors(gitOwnerSelector, gitRepoSelector)
+
+	return ListSelectedPipelineActivities(activitiesClient, labelSelector, fieldSelector)
+}
+
 func updateBatchBuildComprisingPRs(activitiesClient typev1.PipelineActivityInterface, currentActivity *v1.PipelineActivity, batchBuild string, previousActivityForPR *v1.PipelineActivity) error {
 	labels := currentActivity.Labels
-	paName := fmt.Sprintf("%s-batch-%s", labels[v1.LabelSourceRepository], batchBuild)
+	paName := fmt.Sprintf("%s-%s-batch-%s", currentActivity.Spec.GitOwner, currentActivity.Spec.GitRepository, batchBuild)
 	log.Logger().Infof("Looking for batch pipeline activity with name %s", paName)
 	batchPipelineActivity, err := activitiesClient.Get(paName, metav1.GetOptions{})
 	if err != nil {
@@ -346,43 +343,48 @@ func (k *PipelineActivityKey) addBatchBuildData(activitiesClient typev1.Pipeline
 		listOptions.LabelSelector = selector
 		list, err := activitiesClient.List(listOptions)
 		if err != nil {
-			return errors.Wrapf(err, "there was a problem listing all PipelineActivities for PR-%s with lastCommitSha %s", sha, prNumber)
+			return errors.Wrapf(err, "there was a problem listing all PipelineActivities for PR-%s with lastCommitSha %s", prNumber, sha)
 		}
 
-		//Select the first one as the latest build for this SHA, then iterate the rest
-		selectedPipeline := list.Items[0]
-		list.Items = list.Items[1:]
-		for _, i := range list.Items {
-			if i.Spec.Build != "" && selectedPipeline.Spec.Build != "" {
-				ib, err := strconv.Atoi(i.Spec.Build)
-				if err != nil {
-					fmt.Println(err)
-				}
-				cb, err := strconv.Atoi(selectedPipeline.Spec.Build)
-				if err != nil {
-					fmt.Println(err)
-				}
-				if ib > cb {
-					selectedPipeline = i
+		// Only proceed if there are existing PipelineActivitys for this commit/branch - it's entirely possible they've
+		// all been GCed since they last ran. If there are none, just continue to the next commit/branch.
+		if len(list.Items) > 0 {
+			//Select the first one as the latest build for this SHA, then iterate the rest
+			selectedPipeline := list.Items[0]
+			list.Items = list.Items[1:]
+			for _, i := range list.Items {
+				if i.Spec.Build != "" && selectedPipeline.Spec.Build != "" {
+					ib, err := strconv.Atoi(i.Spec.Build)
+					if err != nil {
+						log.Logger().Errorf("%s", err)
+					}
+					cb, err := strconv.Atoi(selectedPipeline.Spec.Build)
+					if err != nil {
+						log.Logger().Errorf("%s", err)
+					}
+					if ib > cb {
+						selectedPipeline = i
+					}
 				}
 			}
-		}
 
-		//Update the selected PR's PipelineActivity with the batch info
-		selectedPipeline.Spec.BatchPipelineActivity = v1.BatchPipelineActivity{
-			BatchBranchName:  currentActivity.Labels[v1.LabelBranch],
-			BatchBuildNumber: k.Build,
-		}
+			//Update the selected PR's PipelineActivity with the batch info
+			selectedPipeline.Spec.BatchPipelineActivity = v1.BatchPipelineActivity{
+				BatchBranchName:  currentActivity.Labels[v1.LabelBranch],
+				BatchBuildNumber: k.Build,
+			}
 
-		_, err = activitiesClient.Update(&selectedPipeline)
-		if err != nil {
-			return errors.Wrap(err, "there was a problem updating the PR's PipelineActivity")
+			_, err = activitiesClient.Update(&selectedPipeline)
+			if err != nil {
+				return errors.Wrap(err, "there was a problem updating the PR's PipelineActivity")
+			}
+			//Add this PR's PipelineActivity info to the pull requests array of the batch build's PipelineActivity
+			prInfos = append(prInfos, v1.PullRequestInfo{
+				PullRequestNumber:        selectedPipeline.Labels[v1.LabelBranch],
+				LastBuildNumberForCommit: selectedPipeline.Spec.Build,
+				LastBuildSHA:             sha,
+			})
 		}
-		//Add this PR's PipelineActivity info to the pull requests array of the batch build's PipelineActivity
-		prInfos = append(prInfos, v1.PullRequestInfo{
-			PullRequestNumber:        selectedPipeline.Labels[v1.LabelBranch],
-			LastBuildNumberForCommit: selectedPipeline.Spec.Build,
-		})
 	}
 	currentActivity.Spec.BatchPipelineActivity = v1.BatchPipelineActivity{
 		ComprisingPulLRequests: prInfos,
@@ -438,11 +440,13 @@ func updateActivity(k *PipelineActivityKey, activity *v1.PipelineActivity) {
 
 	updateActivitySpec(k, &activity.Spec)
 
-	activity.Labels[v1.LabelSourceRepository] = ToValidName(activity.Spec.GitOwner + "-" + activity.RepositoryName())
 	activity.Labels[v1.LabelProvider] = ToProviderName(activity.Spec.GitURL)
 	activity.Labels[v1.LabelOwner] = activity.RepositoryOwner()
 	activity.Labels[v1.LabelRepository] = activity.RepositoryName()
 	activity.Labels[v1.LabelBranch] = activity.BranchName()
+	if activity.Spec.Context != "" {
+		activity.Labels[v1.LabelContext] = activity.Spec.Context
+	}
 	if k.isPRBuild() {
 		for _, v := range k.PullRefs {
 			activity.Labels[v1.LabelLastCommitSha] = v
@@ -451,6 +455,10 @@ func updateActivity(k *PipelineActivityKey, activity *v1.PipelineActivity) {
 	buildNumber := activity.Spec.Build
 	if buildNumber != "" {
 		activity.Labels[v1.LabelBuild] = buildNumber
+	}
+
+	for k, v := range activity.Labels {
+		activity.Labels[k] = naming.ToValidValue(v)
 	}
 }
 
@@ -481,6 +489,9 @@ func updateActivitySpec(k *PipelineActivityKey, spec *v1.PipelineActivitySpec) {
 	}
 	if k.Version != "" && spec.Version == "" {
 		spec.Version = k.Version
+	}
+	if k.Context != "" && spec.Context == "" {
+		spec.Context = k.Context
 	}
 	gi := k.GitInfo
 	if gi != nil {
@@ -569,19 +580,19 @@ func GetOrCreateStage(a *v1.PipelineActivity, stageName string) (*v1.PipelineAct
 	return step, step.Stage, true
 }
 
-// GetOrCreateStepInStage gets or creates the step for the given name in the given stage
-func GetOrCreateStepInStage(stage *v1.StageActivityStep, stepName string) (*v1.CoreActivityStep, bool) {
+// GetStepValueFromStage gets the value for the step for the given name in the given stage, if it already exists. If
+// it doesn't exist, it will create a new step for that name instead.
+func GetStepValueFromStage(stage *v1.StageActivityStep, stepName string) (v1.CoreActivityStep, bool) {
 	for i := range stage.Steps {
 		step := &stage.Steps[i]
 		if step != nil && step.Name == stepName {
-			return step, false
+			return *step, false
 		}
 	}
 
-	step := &v1.CoreActivityStep{
+	step := v1.CoreActivityStep{
 		Name: stepName,
 	}
-	stage.Steps = append(stage.Steps, *step)
 	return step, true
 }
 
@@ -681,7 +692,7 @@ func (k *PromoteStepActivityKey) GetOrCreatePromoteUpdate(jxClient versioned.Int
 }
 
 //OnPromotePullRequest updates activities on a Promote PR
-func (k *PromoteStepActivityKey) OnPromotePullRequest(jxClient versioned.Interface, ns string, fn PromotePullRequestFn) error {
+func (k *PromoteStepActivityKey) OnPromotePullRequest(kubeClient kubernetes.Interface, jxClient versioned.Interface, ns string, fn PromotePullRequestFn) error {
 	if !k.IsValid() {
 		return nil
 	}
@@ -694,21 +705,25 @@ func (k *PromoteStepActivityKey) OnPromotePullRequest(jxClient versioned.Interfa
 	if err != nil {
 		return err
 	}
-	p1 := *p
+	p1 := asYaml(a)
 	err = fn(a, s, ps, p)
 	if err != nil {
 		return err
 	}
-	p2 := *p
+	if ok, _ := IsTektonEnabled(kubeClient, ns); ok && p.Status != v1.ActivityStatusTypeRunning && p.Status != v1.ActivityStatusTypeSucceeded {
+		a.Spec.Status = p.Status
+	}
 
-	if added || !reflect.DeepEqual(p1, p2) {
+	p2 := asYaml(a)
+
+	if added || p1 == "" || p1 != p2 {
 		_, err = activities.PatchUpdate(a)
 	}
 	return err
 }
 
 //OnPromoteUpdate updates activities on a Promote Update
-func (k *PromoteStepActivityKey) OnPromoteUpdate(jxClient versioned.Interface, ns string, fn PromoteUpdateFn) error {
+func (k *PromoteStepActivityKey) OnPromoteUpdate(kubeClient kubernetes.Interface, jxClient versioned.Interface, ns string, fn PromoteUpdateFn) error {
 	if !k.IsValid() {
 		return nil
 	}
@@ -732,12 +747,51 @@ func (k *PromoteStepActivityKey) OnPromoteUpdate(jxClient versioned.Interface, n
 	if k.ApplicationURL != "" {
 		ps.ApplicationURL = k.ApplicationURL
 	}
+
+	if ok, _ := IsTektonEnabled(kubeClient, ns); ok && p.Status != v1.ActivityStatusTypeRunning {
+		a.Spec.Status = p.Status
+	}
 	p2 := asYaml(a)
 
 	if added || p1 == "" || p1 != p2 {
 		_, err = activities.PatchUpdate(a)
 	}
 	return err
+}
+
+// ListSelectedPipelineActivities retrieves the PipelineActivities instances matching the specified label and field selectors. Selectors can be empty or nil.
+func ListSelectedPipelineActivities(activitiesClient typev1.PipelineActivityInterface, labelSelector fmt.Stringer, fieldSelector fields.Selector) (*v1.PipelineActivityList, error) {
+	log.Logger().Debugf("looking for PipelineActivities with label selector %v and field selector %v", labelSelector, fieldSelector)
+
+	listOptions := metav1.ListOptions{}
+	if labelSelector != nil {
+		listOptions.LabelSelector = labelSelector.String()
+	}
+
+	// Field selectors cannot directly be applied to the list query for custom CRDs - https://github.com/kubernetes/kubernetes/issues/51046
+	// We just apply the label selectors and apply the field selection client side
+	pipelineActivityList, err := activitiesClient.List(listOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	if fieldSelector == nil {
+		return pipelineActivityList, nil
+	}
+
+	var matchedItems []v1.PipelineActivity
+	for _, pipelineActivity := range pipelineActivityList.Items {
+		fieldMap, err := newFieldMap(pipelineActivity)
+		if err != nil {
+			return nil, errors.Wrap(err, "unable to convert struct to map")
+		}
+		if fieldSelector.Matches(fieldMap) {
+			matchedItems = append(matchedItems, pipelineActivity)
+		}
+	}
+
+	pipelineActivityList.Items = matchedItems
+	return pipelineActivityList, nil
 }
 
 func asYaml(activity *v1.PipelineActivity) string {

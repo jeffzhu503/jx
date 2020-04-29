@@ -9,7 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/pkg/errors"
 )
+
+//DisallowedLabelCharacters regex of chars not allowed in lables
+var DisallowedLabelCharacters = regexp.MustCompile("[^a-z0-9-]")
 
 // RegexpSplit splits a string into an array using the regexSep as a separator
 func RegexpSplit(text string, regexSeperator string) []string {
@@ -113,7 +118,25 @@ func StringArrayToLower(values []string) []string {
 	return answer
 }
 
-// StringMatches returns true if the given text matches the includes/excludes lists
+// StringContainsAny returns true if the given text contains the includes/excludes lists
+func StringContainsAny(text string, includes []string, excludes []string) bool {
+	for _, x := range excludes {
+		if strings.Index(text, x) >= 0 {
+			return false
+		}
+	}
+	if len(includes) == 0 {
+		return true
+	}
+	for _, inc := range includes {
+		if strings.Index(text, inc) >= 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// StringMatchesAny returns true if the given text matches the includes/excludes lists
 func StringMatchesAny(text string, includes []string, excludes []string) bool {
 	for _, x := range excludes {
 		if StringMatchesPattern(text, x) {
@@ -220,7 +243,46 @@ func YesNo(t bool) string {
 	return "No"
 }
 
+// ExtractKeyValuePairs creates a map of an string array assuming that each array element is of the form <key><sep><value>.
+// An error is returned is a array element cannot be split into a key/value pair using the specified separator.
+func ExtractKeyValuePairs(values []string, sep string) (map[string]string, error) {
+	pairs := make(map[string]string)
+	for _, value := range values {
+		parts := strings.Split(value, sep)
+		if len(parts) != 2 {
+			return map[string]string{}, errors.Errorf("expected 2 parts for key value pair '%s', but got %v", value, len(parts))
+		}
+		pairs[parts[0]] = parts[1]
+	}
+	return pairs, nil
+}
+
 // QuestionAnswer returns strings like Cobra question/answers for default cli options
 func QuestionAnswer(question string, answer string) string {
 	return fmt.Sprintf("%s %s: %s", ColorBold(ColorInfo("?")), ColorBold(question), ColorAnswer(answer))
+}
+
+//SanitizeLabel returns a label with disallowed characters removed
+func SanitizeLabel(label string) string {
+	sanitized := strings.ToLower(label)
+	return DisallowedLabelCharacters.ReplaceAllString(sanitized, "-")
+}
+
+// StripTrailingSlash removes any trailing forward slashes on the URL
+func StripTrailingSlash(url string) string {
+	if url[len(url)-1:] == "/" {
+		return url[0 : len(url)-1]
+	}
+	return url
+}
+
+// StartsWith returns true if the string starts with the given substring
+func StartsWith(s, substr string) bool {
+	return strings.Index(s, substr) == 0
+}
+
+// ToCamelCase turn "my-super-name" into "MySuperName"
+// Usefule for creating valid go-template variable names
+func ToCamelCase(s string) string {
+	return strings.Replace(strings.Title(s), "-", "", -1)
 }

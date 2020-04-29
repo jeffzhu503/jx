@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/jenkins-x/jx/pkg/log"
+
 	ibmcloud "github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/authentication"
 	"github.com/IBM-Cloud/bluemix-go/bmxerror"
@@ -166,7 +168,7 @@ func (a *registry) AddToken(accountID string, description string, permanent bool
 
 	response, err := a.Client.Post(fmt.Sprintf("/api/v1/tokens?%s", v.Encode()), nil, &queryResp, m)
 	if err != nil {
-		fmt.Println(err)
+		log.Logger().Errorf("error - %s", err)
 		if response.StatusCode == 401 {
 			return "", bmxerror.New(ErrCodeNotAuthorized,
 				"You are not authorized to view the requested resource, or your IBM Cloud bearer token is invalid. Correct the request and try again.")

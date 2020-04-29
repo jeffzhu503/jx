@@ -3,11 +3,15 @@ package vault
 import (
 	"fmt"
 	"io"
+	"os"
 	"time"
+
+	"github.com/jenkins-x/jx/pkg/vault"
 
 	"github.com/banzaicloud/bank-vaults/operator/pkg/client/clientset/versioned"
 	"github.com/hashicorp/vault/api"
 	"github.com/jenkins-x/jx/pkg/kube/serviceaccount"
+	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
 	"gopkg.in/AlecAivazis/survey.v1/terminal"
@@ -23,7 +27,7 @@ const (
 	maxRetries = 2
 
 	// healthReadyTimeout define the maximum duration to wait for vault to become initialized and unsealed
-	healthhRetyTimeout = 2 * time.Minute
+	healthhRetyTimeout = 10 * time.Minute
 
 	// healthInitialRetryDelay define the initial delay before starting the retries
 	healthInitialRetryDelay = 10 * time.Second
@@ -34,11 +38,14 @@ const (
 	// kvEngineConfigPath config path for KV secrets engine V2
 	kvEngineConfigPath = "secret/config"
 
+	// kvEngineWriteCheckPath imaginary secret to check when the secrets engine is ready for write
+	kvEngineWriteCheckPath = "secret/data/jx-write-check"
+
 	// kvEngineInitialRetyDelay define the initial delay before checking the kv engine configuration
 	kvEngineInitialRetyDelay = 1 * time.Second
 
 	// kvEngineRetryTimeout define the maximum duration to wait for KV engine to be properly configured
-	kvEngineRetryTimeout = 1 * time.Minute
+	kvEngineRetryTimeout = 5 * time.Minute
 )
 
 // OptionsInterface is an interface to allow passing around of a CommonOptions object without dependencies on the whole of the cmd package
@@ -48,14 +55,16 @@ type OptionsInterface interface {
 	GetIn() terminal.FileReader
 	GetOut() terminal.FileWriter
 	GetErr() io.Writer
+	GetIOFileHandles() util.IOFileHandles
 }
 
 // VaultClientFactory keeps the configuration required to build a new vault client factory
 type VaultClientFactory struct {
-	Options          OptionsInterface
-	Selector         Selector
-	kubeClient       kubernetes.Interface
-	defaultNamespace string
+	Options             OptionsInterface
+	Selector            Selector
+	kubeClient          kubernetes.Interface
+	defaultNamespace    string
+	DisableURLDiscovery bool
 }
 
 // NewInteractiveVaultClientFactory creates a VaultClientFactory that allows the user to pick vaults if necessary
@@ -92,15 +101,16 @@ func NewVaultClientFactory(kubeClient kubernetes.Interface, vaultOperatorClient 
 // if namespace is nil, then the default namespace of the factory will be used
 // if the name is nil, and only one vault is found, then that vault will be used. Otherwise the user will be prompted to
 // select a vault for the client.
-func (v *VaultClientFactory) NewVaultClient(name string, namespace string) (*api.Client, error) {
-	config, jwt, role, err := v.GetConfigData(name, namespace)
+func (v *VaultClientFactory) NewVaultClient(name string, namespace string, useIngressURL, insecureSSLWebhook bool) (*api.Client, error) {
+	config, jwt, role, err := v.GetConfigData(name, namespace, useIngressURL, insecureSSLWebhook)
 	if err != nil {
 		return nil, err
 	}
 	vaultClient, err := api.NewClient(config)
 	if err != nil {
-		return nil, errors.Wrap(err, "crating vault client")
+		return nil, errors.Wrap(err, "creating vault client")
 	}
+	log.Logger().Debugf("Connecting to vault on %s", vaultClient.Address())
 
 	// Wait for vault to be ready
 	err = waitForVault(vaultClient, healthInitialRetryDelay, healthhRetyTimeout)
@@ -124,13 +134,18 @@ func (v *VaultClientFactory) NewVaultClient(name string, namespace string) (*api
 
 // GetConfigData generates the information necessary to configure an api.Client object
 // Returns the api.Config object, the JWT needed to create the auth user in vault, and an error if present
-func (v *VaultClientFactory) GetConfigData(name string, namespace string) (config *api.Config, jwt string, saName string, err error) {
+func (v *VaultClientFactory) GetConfigData(name string, namespace string, useIngressURL, insecureSSLWebhook bool) (config *api.Config, jwt string, saName string, err error) {
 	if namespace == "" {
 		namespace = v.defaultNamespace
 	}
-	vlt, err := v.Selector.GetVault(name, namespace)
+
+	vlt, err := v.Selector.GetVault(name, namespace, useIngressURL)
 	if err != nil {
 		return nil, "", "", err
+	}
+
+	if os.Getenv(vault.LocalVaultEnvVar) != "" && !useIngressURL {
+		vlt.URL = os.Getenv(vault.LocalVaultEnvVar)
 	}
 
 	serviceAccount, err := v.getServiceAccountFromVault(vlt)
@@ -138,6 +153,11 @@ func (v *VaultClientFactory) GetConfigData(name string, namespace string) (confi
 	cfg := &api.Config{
 		Address:    vlt.URL,
 		MaxRetries: maxRetries,
+	}
+
+	if insecureSSLWebhook {
+		t := api.TLSConfig{Insecure: true}
+		cfg.ConfigureTLS(&t)
 	}
 
 	return cfg, token, serviceAccount.Name, err
@@ -153,6 +173,7 @@ func waitForVault(vaultClient *api.Client, initialDelay, timeout time.Duration) 
 		if err == nil && hr != nil && hr.Initialized && !hr.Sealed {
 			return nil
 		}
+		log.Logger().Info("Waiting for vault to be initialized and unsealed...")
 		if err != nil {
 			return errors.Wrap(err, "reading vault health")
 		}
@@ -166,7 +187,18 @@ func waitForVault(vaultClient *api.Client, initialDelay, timeout time.Duration) 
 func waitForKVEngine(vaultClient *api.Client, initialDelay, timeout time.Duration) error {
 	return util.RetryWithInitialDelaySlower(initialDelay, timeout, func() error {
 		if _, err := vaultClient.Logical().Read(kvEngineConfigPath); err != nil {
-			return errors.Wrap(err, "checking KV engine config")
+			log.Logger().Info("Waiting for KV secrets engine to be configured...")
+			return errors.Wrap(err, "checking KV secrets engine config")
+		}
+
+		payload := map[string]interface{}{
+			"data": map[string]string{
+				"test": "write",
+			},
+		}
+		if _, err := vaultClient.Logical().Write(kvEngineWriteCheckPath, payload); err != nil {
+			log.Logger().Info("Waiting for KV secrets engine to be ready for write...")
+			return errors.Wrap(err, "checking KV secrets engine ready for write")
 		}
 		return nil
 	})

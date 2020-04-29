@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/cloud/amazon/session"
+
 	"github.com/jenkins-x/jx/pkg/kube"
 	"k8s.io/client-go/kubernetes"
 
@@ -18,10 +20,12 @@ import (
 
 // GetAccountIDAndRegion returns the current account ID and region
 func GetAccountIDAndRegion(profile string, region string) (string, string, error) {
-	sess, err := NewAwsSession(profile, region)
-	region = *sess.Config.Region
+	sess, err := session.NewAwsSession(profile, region)
+	// We nee to get the region from the connected cluster instead of the one configured for the calling user
+	// as it might not be found and it would then use the default (us-west-2)
+	_, region, err = session.GetCurrentlyConnectedRegionAndClusterName()
 	if err != nil {
-		return "", region, err
+		return "", "", err
 	}
 	svc := sts.New(sess)
 
@@ -82,7 +86,7 @@ func LazyCreateRegistry(kube kubernetes.Interface, namespace string, region stri
 	if region == "" {
 		region = GetRegionFromContainerRegistryHost(kube, namespace, dockerRegistry)
 	}
-	sess, err := NewAwsSession("", region)
+	sess, err := session.NewAwsSession("", region)
 	if err != nil {
 		return err
 	}

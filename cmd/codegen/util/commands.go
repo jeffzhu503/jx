@@ -168,6 +168,8 @@ func (c *Command) RunWithoutRetry() (string, error) {
 	var r string
 	var e error
 
+	AppLogger().Debugf("Running %s %s %s", JoinMap(c.Env, " ", "="), c.Name, strings.Join(c.Args, " "))
+
 	r, e = c.run()
 	c.attempts++
 	if e != nil {
@@ -187,7 +189,7 @@ func (c *Command) String() string {
 }
 
 func (c *Command) run() (string, error) {
-	e := exec.Command(c.Name, c.Args...)
+	e := exec.Command(c.Name, c.Args...) // #nosec
 	if c.Dir != "" {
 		e.Dir = c.Dir
 	}

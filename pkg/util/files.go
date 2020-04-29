@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jenkins-x/jx/pkg/log"
+	"gopkg.in/AlecAivazis/survey.v1/terminal"
 
 	"github.com/pkg/errors"
 )
@@ -20,18 +21,29 @@ import (
 const (
 	DefaultWritePermissions = 0760
 
+	// DefaultFileWritePermissions default permissions when creating a file
+	DefaultFileWritePermissions = 0644
+
 	MaximumNewDirectoryAttempts = 1000
 )
 
+// IOFileHandles is a struct for holding CommonOptions' In, Out, and Err I/O handles, to simplify function calls.
+type IOFileHandles struct {
+	Err io.Writer
+	In  terminal.FileReader
+	Out terminal.FileWriter
+}
+
+// FileExists checks if path exists and is a file
 func FileExists(path string) (bool, error) {
-	_, err := os.Stat(path)
+	fileInfo, err := os.Stat(path)
 	if err == nil {
-		return true, nil
+		return !fileInfo.IsDir(), nil
 	}
 	if os.IsNotExist(err) {
 		return false, nil
 	}
-	return true, errors.Wrapf(err, "failed to check if file exists %s", path)
+	return false, errors.Wrapf(err, "failed to check if file exists %s", path)
 }
 
 // DirExists checks if path exists and is a directory
@@ -393,6 +405,8 @@ func DestroyFile(filename string) error {
 	size := fileInfo.Size()
 	// Overwrite the file with random data. Doing this multiple times is probably more secure
 	randomBytes := make([]byte, size)
+	// Avoid false positive G404 of gosec module - https://github.com/securego/gosec/issues/291
+	/* #nosec */
 	_, _ = rand.Read(randomBytes)
 	err = ioutil.WriteFile(filename, randomBytes, DefaultWritePermissions)
 	if err != nil {
@@ -544,4 +558,10 @@ func GlobAllFiles(basedir string, pattern string, fn func(string) error) error {
 		}
 	}
 	return nil
+}
+
+// ToValidFileSystemName converts the name to one that can safely be used on the filesystem
+func ToValidFileSystemName(name string) string {
+	replacer := strings.NewReplacer(".", "_", "/", "_")
+	return replacer.Replace(name)
 }

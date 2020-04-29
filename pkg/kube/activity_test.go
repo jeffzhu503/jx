@@ -1,21 +1,24 @@
+// +build unit
+
 package kube_test
 
 import (
 	"fmt"
-	"github.com/jenkins-x/jx/pkg/jx/cmd/cmd_test_helpers"
 	"strconv"
 	"testing"
 	"time"
 
+	jenkinsio_v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
+	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	jxfake "github.com/jenkins-x/jx/pkg/client/clientset/versioned/fake"
+	"github.com/jenkins-x/jx/pkg/cmd/testhelpers"
 	"github.com/jenkins-x/jx/pkg/gits"
-	"github.com/stretchr/testify/require"
+	appsv1 "k8s.io/api/apps/v1"
 	k8s_v1 "k8s.io/api/core/v1"
 
-	"github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	typev1 "github.com/jenkins-x/jx/pkg/client/clientset/versioned/typed/jenkins.io/v1"
-	"github.com/jenkins-x/jx/pkg/jx/cmd/clients"
-	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
+	"github.com/jenkins-x/jx/pkg/cmd/clients"
+	"github.com/jenkins-x/jx/pkg/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,7 +28,7 @@ import (
 func TestGenerateBuildNumber(t *testing.T) {
 	commonOpts := opts.NewCommonOptionsWithFactory(clients.NewFactory())
 	options := &commonOpts
-	cmd_test_helpers.ConfigureTestOptions(options, options.Git(), options.Helm())
+	testhelpers.ConfigureTestOptions(options, options.Git(), options.Helm())
 
 	jxClient, ns, err := options.JXClientAndDevNamespace()
 	assert.NoError(t, err, "Creating JX client")
@@ -88,6 +91,12 @@ func TestCreateOrUpdateActivities(t *testing.T) {
 	}
 
 	mockKubeClient.CoreV1().ConfigMaps(nsObj.Namespace).Create(ingressConfig)
+	mockTektonDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: kube.DeploymentTektonController,
+		},
+	}
+	mockKubeClient.AppsV1().Deployments(nsObj.Namespace).Create(mockTektonDeployment)
 	jxClient := jxfake.NewSimpleClientset()
 
 	const (
@@ -97,8 +106,6 @@ func TestCreateOrUpdateActivities(t *testing.T) {
 		expectedOrganisation = "test-org"
 	)
 	expectedPipeline := expectedOrganisation + "/" + expectedName + "/master"
-
-	sourceRepoName := kube.ToValidName(expectedOrganisation + "-" + expectedName)
 
 	key := kube.PipelineActivityKey{
 		Name:     expectedName,
@@ -120,17 +127,6 @@ func TestCreateOrUpdateActivities(t *testing.T) {
 		assert.Equal(t, expectedBuild, spec.Build)
 	}
 
-	// validate that we have the expected sourcerepository crd that should have been created
-	sourceRepositoryInterface := jxClient.JenkinsV1().SourceRepositories(nsObj.Namespace)
-	list, err := sourceRepositoryInterface.List(metav1.ListOptions{})
-	require.NoError(t, err, "listing SourceRepository resources")
-	t.Logf("found %d SourceRepository resources in namespace %s\n", len(list.Items), nsObj.Namespace)
-	for _, sr := range list.Items {
-		t.Logf("found SourceRepository %s with organisation %s and repo %s\n", sr.Name, sr.Spec.Org, sr.Spec.Repo)
-	}
-	sr, err := sourceRepositoryInterface.Get(sourceRepoName, metav1.GetOptions{})
-	assert.NotNil(t, sr, "Should have found a sourcerepo %s", sourceRepoName)
-
 	// lazy add a PromotePullRequest
 	promoteKey := kube.PromoteStepActivityKey{
 		PipelineActivityKey: key,
@@ -148,7 +144,7 @@ func TestCreateOrUpdateActivities(t *testing.T) {
 		return nil
 	}
 
-	err = promoteKey.OnPromotePullRequest(jxClient, nsObj.Namespace, promotePullRequestStarted)
+	err := promoteKey.OnPromotePullRequest(mockKubeClient, jxClient, nsObj.Namespace, promotePullRequestStarted)
 	assert.Nil(t, err)
 
 	promoteStarted := func(a *v1.PipelineActivity, s *v1.PipelineActivityStep, ps *v1.PromoteActivityStep, p *v1.PromoteUpdateStep) error {
@@ -158,7 +154,7 @@ func TestCreateOrUpdateActivities(t *testing.T) {
 		return nil
 	}
 
-	err = promoteKey.OnPromoteUpdate(jxClient, nsObj.Namespace, promoteStarted)
+	err = promoteKey.OnPromoteUpdate(mockKubeClient, jxClient, nsObj.Namespace, promoteStarted)
 	assert.Nil(t, err)
 
 	// lets validate that we added a PromotePullRequest step
@@ -195,6 +191,7 @@ func TestCreateOrUpdateActivities(t *testing.T) {
 	assert.Equal(t, v1.ActivityStatusTypeSucceeded, pullRequestStep.Status, "pullRequestStep status")
 	assert.Equal(t, v1.ActivityStatusTypeSucceeded, updateStep.Status, "updateStep status")
 	assert.Equal(t, v1.ActivityStatusTypeSucceeded, promote.Status, "promote status")
+	assert.Equal(t, v1.ActivityStatusTypeSucceeded, a.Spec.Status, "activity status")
 
 	//tests.Debugf("Has Promote %#v\n", promote)
 }
@@ -301,10 +298,84 @@ func TestCreateOrUpdateActivityForBatchBuild(t *testing.T) {
 		if i.PullRequestNumber == "PR-2" {
 			exists = true
 			assert.Equal(t, "3", i.LastBuildNumberForCommit)
+			assert.Equal(t, "sha2", i.LastBuildSHA)
 		}
 	}
 	assert.True(t, exists, "There should be a Pull Request called PR-2 within the ComprisingPullRequests property")
 	assert.Equal(t, expectedBuild, pa1.Spec.BatchPipelineActivity.BatchBuildNumber, "The batch build number that is going to merge this PR should be %s", expectedBuild)
+	assert.Equal(t, expectedBuild, pa3.Spec.BatchPipelineActivity.BatchBuildNumber, "The batch build number that is going to merge this PR should be %s", expectedBuild)
+}
+
+func TestCreateOrUpdateActivityForBatchBuildWithoutExistingActivities(t *testing.T) {
+	t.Parallel()
+
+	nsObj := &k8s_v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "jx-testing",
+			Namespace: "testing_ns",
+		},
+	}
+
+	jxClient := jxfake.NewSimpleClientset()
+
+	const (
+		expectedName         = "demo-2"
+		expectedBuild        = "2"
+		expectedOrganisation = "test-org"
+	)
+	expectedPipeline := expectedOrganisation + "/" + expectedName + "/master"
+
+	key := kube.PipelineActivityKey{
+		Name:     expectedName,
+		Pipeline: expectedPipeline,
+		Build:    expectedBuild,
+		GitInfo: &gits.GitRepository{
+			Name:         expectedName,
+			Organisation: expectedOrganisation,
+			URL:          "https://github.com/" + expectedOrganisation + "/" + expectedName,
+		},
+		PullRefs: map[string]string{
+			"1": "sha1",
+			"2": "sha2",
+		},
+	}
+
+	//lets create a few "builds" for PR-2 with the same SHA so we can check if we choose the right one
+	for i := 1; i < 4; i++ {
+		_, err := jxClient.JenkinsV1().PipelineActivities(nsObj.Namespace).Create(&v1.PipelineActivity{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: fmt.Sprintf("PA%d", i),
+				Labels: map[string]string{
+					"lastCommitSha": "sha2",
+					"branch":        "PR-2",
+				},
+			},
+			Spec: v1.PipelineActivitySpec{
+				Build: strconv.Itoa(i),
+			},
+		})
+		assert.NoError(t, err)
+	}
+
+	a, _, err := key.GetOrCreate(jxClient, nsObj.Namespace)
+	assert.Nil(t, err)
+	assert.Equal(t, expectedName, a.Name)
+	spec := &a.Spec
+	assert.Equal(t, expectedPipeline, spec.Pipeline)
+	assert.Equal(t, expectedBuild, spec.Build)
+
+	pa3, err := jxClient.JenkinsV1().PipelineActivities(nsObj.Namespace).Get("PA3", metav1.GetOptions{})
+	assert.NoError(t, err)
+
+	assert.Len(t, a.Spec.BatchPipelineActivity.ComprisingPulLRequests, 1, "There should be %d PRs information in the ComprisingPullRequests property", 1)
+	exists := false
+	for _, i := range a.Spec.BatchPipelineActivity.ComprisingPulLRequests {
+		if i.PullRequestNumber == "PR-2" {
+			exists = true
+			assert.Equal(t, "3", i.LastBuildNumberForCommit)
+		}
+	}
+	assert.True(t, exists, "There should be a Pull Request called PR-2 within the ComprisingPullRequests property")
 	assert.Equal(t, expectedBuild, pa3.Spec.BatchPipelineActivity.BatchBuildNumber, "The batch build number that is going to merge this PR should be %s", expectedBuild)
 }
 
@@ -375,14 +446,15 @@ func TestBatchReconciliationWithTwoPRBuildExecutions(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: prPAName,
 			Labels: map[string]string{
-				v1.LabelBranch:           "PR-1",
-				v1.LabelLastCommitSha:    "sha1",
-				v1.LabelBuild:            "1",
-				v1.LabelSourceRepository: fmt.Sprintf("%s-%s", expectedOrganisation, expectedName),
+				v1.LabelBranch:        "PR-1",
+				v1.LabelLastCommitSha: "sha1",
+				v1.LabelBuild:         "1",
 			},
 		},
 		Spec: v1.PipelineActivitySpec{
-			Build: "1",
+			GitOwner:      expectedOrganisation,
+			GitRepository: expectedName,
+			Build:         "1",
 			BatchPipelineActivity: v1.BatchPipelineActivity{
 				BatchBuildNumber: expectedBatchBuild,
 			},
@@ -397,14 +469,15 @@ func TestBatchReconciliationWithTwoPRBuildExecutions(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: batchPAName,
 			Labels: map[string]string{
-				v1.LabelBranch:           "batch",
-				v1.LabelLastCommitSha:    "testSha",
-				v1.LabelBuild:            expectedBatchBuild,
-				v1.LabelSourceRepository: fmt.Sprintf("%s-%s", expectedOrganisation, expectedName),
+				v1.LabelBranch:        "batch",
+				v1.LabelLastCommitSha: "testSha",
+				v1.LabelBuild:         expectedBatchBuild,
 			},
 		},
 		Spec: v1.PipelineActivitySpec{
-			Build: expectedBatchBuild,
+			GitOwner:      expectedOrganisation,
+			GitRepository: expectedName,
+			Build:         expectedBatchBuild,
 			BatchPipelineActivity: v1.BatchPipelineActivity{
 				ComprisingPulLRequests: []v1.PullRequestInfo{
 					{PullRequestNumber: "PR-1", LastBuildNumberForCommit: "1"},
@@ -451,6 +524,7 @@ func TestCreatePipelineDetails(t *testing.T) {
 	expectedBranch := "master"
 	expectedPipeline := expectedGitOwner + "/" + expectedGitRepo + "/" + expectedBranch
 	expectedBuild := "3"
+	expectedContext := "release"
 
 	pipelines := []*v1.PipelineActivity{
 		{
@@ -470,6 +544,7 @@ func TestCreatePipelineDetails(t *testing.T) {
 				GitOwner:      expectedGitOwner,
 				GitRepository: expectedGitRepo,
 				Build:         expectedBuild,
+				Context:       expectedContext,
 			},
 		},
 	}
@@ -482,6 +557,9 @@ func TestCreatePipelineDetails(t *testing.T) {
 			assert.Equal(t, expectedBranch, d1.BranchName, "%s BranchName", name)
 			assert.Equal(t, expectedPipeline, d1.Pipeline, "%s Pipeline", name)
 			assert.Equal(t, expectedBuild, d1.Build, "%s Build", name)
+			if pipeline.Spec.Context != "" {
+				assert.Equal(t, expectedContext, d1.Context, "%s Context", name)
+			}
 		}
 	}
 }
@@ -501,6 +579,105 @@ func TestPipelineID(t *testing.T) {
 	//system - the illegal characters are not yet encoded & will be rejected by K8S.
 	pID = kube.NewPipelineID("O/N!R@1", "therepo", "thebranch")
 	validatePipelineID(t, pID, "O/N!R@1/therepo/thebranch", "o-n!r@1-therepo-thebranch")
+}
+
+func TestSortActivities(t *testing.T) {
+	t.Parallel()
+	date1 := metav1.Date(2009, time.September, 10, 23, 0, 0, 0, time.UTC)
+	date2 := metav1.Date(2009, time.October, 10, 23, 0, 0, 0, time.UTC)
+	date3 := metav1.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC)
+	date4 := metav1.Date(2009, time.December, 10, 23, 0, 0, 0, time.UTC)
+
+	activities := []jenkinsio_v1.PipelineActivity{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "a1",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: &date3,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "a2",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: &date2,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "a3",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: &date1,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "a4",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: &date4,
+			},
+		},
+	}
+
+	kube.SortActivities(activities)
+
+	assert.Equal(t, "a3", activities[0].Name, "Activity 0")
+	assert.Equal(t, "a2", activities[1].Name, "Activity 1")
+	assert.Equal(t, "a1", activities[2].Name, "Activity 2")
+	assert.Equal(t, "a4", activities[3].Name, "Activity 3")
+}
+
+func TestSortActivitiesWithPendingCases(t *testing.T) {
+	t.Parallel()
+	date1 := metav1.Date(2009, time.September, 10, 23, 0, 0, 0, time.UTC)
+	date2 := metav1.Date(2009, time.October, 10, 23, 0, 0, 0, time.UTC)
+	date3 := metav1.Date(2009, time.November, 10, 23, 0, 0, 0, time.UTC)
+
+	activities := []jenkinsio_v1.PipelineActivity{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "a1",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: &date3,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "a2",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: &date2,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "a3",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: &date1,
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "p",
+			},
+			Spec: v1.PipelineActivitySpec{
+				StartedTimestamp: nil,
+			},
+		},
+	}
+
+	kube.SortActivities(activities)
+
+	assert.Equal(t, "a3", activities[0].Name, "Activity 0")
+	assert.Equal(t, "a2", activities[1].Name, "Activity 1")
+	assert.Equal(t, "a1", activities[2].Name, "Activity 2")
+	assert.Equal(t, "p", activities[3].Name, "Activity 3")
 }
 
 func validatePipelineID(t *testing.T, pID kube.PipelineID, expectedID string, expectedName string) {

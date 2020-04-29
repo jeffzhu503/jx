@@ -5,12 +5,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/blang/semver"
 	"github.com/jenkins-x/jx/pkg/kube"
 
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/pkg/util/slice"
 
 	"github.com/jenkins-x/jx/pkg/log"
@@ -47,9 +48,7 @@ func NewHelmCLI(binary string, version Version, cwd string, debug bool, args ...
 	a := []string{}
 	for _, x := range args {
 		y := strings.Split(x, " ")
-		for _, z := range y {
-			a = append(a, z)
-		}
+		a = append(a, y...)
 	}
 	runner := &util.Command{
 		Args: a,
@@ -64,6 +63,47 @@ func NewHelmCLI(binary string, version Version, cwd string, debug bool, args ...
 		Debug:      debug,
 	}
 	return cli
+}
+
+// NewHelmCLIWithCompatibilityCheck creates a new HelmCLI and checks the compatibility with
+// the currently installed helm CLI. This will exit the program with a fatal log if the helm CLI
+// is not compatible.
+func NewHelmCLIWithCompatibilityCheck(binary string, version Version, cwd string, debug bool, args ...string) *HelmCLI {
+	cli := NewHelmCLI(binary, version, cwd, debug, args...)
+	cli.checkCompatibility()
+	return cli
+}
+
+// checkCompatibility verifies whether the current helm CLI is compatible. The current
+// implementation only supports helm CLI v2. This function will exit the program if the
+// installed helm cli is not compatible.
+func (h *HelmCLI) checkCompatibility() {
+	version, err := h.VersionWithArgs(false, "--client")
+	version = strings.TrimPrefix(version, "Client: ")
+	if err != nil {
+		log.Logger().Warnf("Unable to detect the current helm version due to: %s", err)
+		return
+	}
+	v, err := semver.ParseTolerant(version)
+	if err != nil {
+		log.Logger().Warnf("Unable to parse the current helm version: %s", version)
+		return
+	}
+
+	if h.BinVersion == V3 {
+		if v.Major != 3 {
+			log.Logger().Fatalf("Your current helm version v%d is not supported. Please upgrade to helm v3.", v.Major)
+		}
+	} else if os.Getenv("JX_HELM3") == "true" {
+		if v.Major != 3 {
+			log.Logger().Fatalf("You have set $JX_HELM3=true but your helm client version is %d", v.Major)
+		}
+	} else {
+		if v.Major > 2 {
+			log.Logger().Fatalf("Your current helm version v%d is not supported. Please downgrade to helm v2.", v.Major)
+		}
+	}
+
 }
 
 // SetHost is used to point at a locally running tiller
@@ -122,7 +162,7 @@ func (h *HelmCLI) Init(clientOnly bool, serviceAccount string, tillerNamespace s
 	}
 
 	if h.Debug {
-		log.Logger().Infof("Initialising Helm '%s'", util.ColorInfo(strings.Join(args, " ")))
+		log.Logger().Debugf("Initialising Helm '%s'", util.ColorInfo(strings.Join(args, " ")))
 	}
 
 	return h.runHelm(args...)
@@ -148,10 +188,12 @@ func (h *HelmCLI) RemoveRepo(repo string) error {
 // ListRepos list the installed helm repos together with their URL
 func (h *HelmCLI) ListRepos() (map[string]string, error) {
 	output, err := h.runHelmWithOutput("repo", "list")
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to list repositories")
-	}
 	repos := map[string]string{}
+	if err != nil {
+		// helm3 now returns an error if there are no repos
+		return repos, nil
+		//return nil, shouldError.Wrap(err, "failed to list repositories")
+	}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	for _, line := range lines[1:] {
 		line = strings.TrimSpace(line)
@@ -166,14 +208,21 @@ func (h *HelmCLI) ListRepos() (map[string]string, error) {
 }
 
 // SearchCharts searches for all the charts matching the given filter
-func (h *HelmCLI) SearchCharts(filter string) ([]ChartSummary, error) {
+func (h *HelmCLI) SearchCharts(filter string, allVersions bool) ([]ChartSummary, error) {
 	answer := []ChartSummary{}
-	output, err := h.runHelmWithOutput("search", filter)
+	args := []string{"search", filter}
+	if allVersions {
+		args = append(args, "--versions")
+	}
+	output, err := h.runHelmWithOutput(args...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to search charts")
 	}
 	lines := strings.Split(output, "\n")
-	for _, line := range lines[1:] {
+	for _, line := range lines {
+		if strings.HasPrefix(line, "NAME") || line == "" {
+			continue
+		}
 		line = strings.TrimSpace(line)
 		fields := strings.Split(line, "\t")
 		chart := ChartSummary{}
@@ -214,7 +263,7 @@ func (h *HelmCLI) IsRepoMissing(URL string) (bool, string, error) {
 				return true, "", errors.Wrap(err, "failed to parse the repo URL")
 			}
 			// match on the whole URL as helm dep build requires on username + passowrd in the URL
-			if url.Host == searchedURL.Host {
+			if url.Host == searchedURL.Host && url.Path == searchedURL.Path {
 				return false, name, nil
 			}
 		}
@@ -246,26 +295,19 @@ func (h *HelmCLI) RemoveRequirementsLock() error {
 
 // BuildDependency builds the helm dependencies of the helm chart from the current working directory
 func (h *HelmCLI) BuildDependency() error {
+	if h.Debug {
+		log.Logger().Infof("Running %s dependency build in %s\n", h.Binary, util.ColorInfo(h.CWD))
+		out, err := h.runHelmWithOutput("dependency", "build")
+		log.Logger().Infof(out)
+		return err
+	}
 	return h.runHelm("dependency", "build")
 }
 
 // InstallChart installs a helm chart according with the given flags
 func (h *HelmCLI) InstallChart(chart string, releaseName string, ns string, version string, timeout int,
-	values []string, valueFiles []string, repo string, username string, password string) error {
+	values []string, valueStrings []string, valueFiles []string, repo string, username string, password string) error {
 	var err error
-	currentNamespace := ""
-	if h.Binary == "helm3" {
-		log.Logger().Warnf("Manually switching namespace to for helm3 alpha - %s, this code should be removed once --namespaces is implemented", ns)
-		currentNamespace, err = h.getCurrentNamespace()
-		if err != nil {
-			return err
-		}
-
-		err = h.setNamespace(ns)
-		if err != nil {
-			return err
-		}
-	}
 
 	args := []string{}
 	args = append(args, "install", "--wait", "--name", releaseName, "--namespace", ns, chart)
@@ -287,6 +329,9 @@ func (h *HelmCLI) InstallChart(chart string, releaseName string, ns string, vers
 	for _, value := range values {
 		args = append(args, "--set", value)
 	}
+	for _, value := range valueStrings {
+		args = append(args, "--set-string", value)
+	}
 	for _, valueFile := range valueFiles {
 		args = append(args, "--values", valueFile)
 	}
@@ -299,6 +344,10 @@ func (h *HelmCLI) InstallChart(chart string, releaseName string, ns string, vers
 	if password != "" {
 		args = append(args, "--password", password)
 	}
+	logLevel := os.Getenv("JX_HELM_VERBOSE")
+	if logLevel != "" {
+		args = append(args, "-v", logLevel)
+	}
 	if h.Debug {
 		log.Logger().Infof("Installing Chart '%s'", util.ColorInfo(strings.Join(args, " ")))
 	}
@@ -306,13 +355,6 @@ func (h *HelmCLI) InstallChart(chart string, releaseName string, ns string, vers
 	err = h.runHelm(args...)
 	if err != nil {
 		return err
-	}
-
-	if h.Binary == "helm3" {
-		err = h.setNamespace(currentNamespace)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -359,7 +401,7 @@ func (h *HelmCLI) FetchChart(chart string, version string, untar bool, untardir 
 
 // Template generates the YAML from the chart template to the given directory
 func (h *HelmCLI) Template(chart string, releaseName string, ns string, outDir string, upgrade bool,
-	values []string, valueFiles []string) error {
+	values []string, valueStrings []string, valueFiles []string) error {
 	args := []string{"template", "--name", releaseName, "--namespace", ns, chart, "--output-dir", outDir, "--debug"}
 	if upgrade {
 		args = append(args, "--is-upgrade")
@@ -367,12 +409,15 @@ func (h *HelmCLI) Template(chart string, releaseName string, ns string, outDir s
 	for _, value := range values {
 		args = append(args, "--set", value)
 	}
+	for _, value := range valueStrings {
+		args = append(args, "--set-string", value)
+	}
 	for _, valueFile := range valueFiles {
 		args = append(args, "--values", valueFile)
 	}
 
 	if h.Debug {
-		log.Logger().Infof("Generating Chart Template '%s'", util.ColorInfo(strings.Join(args, " ")))
+		log.Logger().Debugf("Generating Chart Template '%s'", util.ColorInfo(strings.Join(args, " ")))
 	}
 	err := h.runHelm(args...)
 	if err != nil {
@@ -382,21 +427,8 @@ func (h *HelmCLI) Template(chart string, releaseName string, ns string, outDir s
 }
 
 // UpgradeChart upgrades a helm chart according with given helm flags
-func (h *HelmCLI) UpgradeChart(chart string, releaseName string, ns string, version string, install bool, timeout int, force bool, wait bool, values []string, valueFiles []string, repo string, username string, password string) error {
+func (h *HelmCLI) UpgradeChart(chart string, releaseName string, ns string, version string, install bool, timeout int, force bool, wait bool, values []string, valueStrings []string, valueFiles []string, repo string, username string, password string) error {
 	var err error
-	currentNamespace := ""
-	if h.Binary == "helm3" {
-		log.Logger().Warnf("Manually switching namespace to for helm3 alpha - %s, this code should be removed once --namespaces is implemented", ns)
-		currentNamespace, err = h.getCurrentNamespace()
-		if err != nil {
-			return err
-		}
-
-		err = h.setNamespace(ns)
-		if err != nil {
-			return err
-		}
-	}
 	args := []string{}
 	args = append(args, "upgrade")
 	args = append(args, "--namespace", ns)
@@ -415,7 +447,7 @@ func (h *HelmCLI) UpgradeChart(chart string, releaseName string, ns string, vers
 		args = append(args, "--force")
 	}
 	if timeout != -1 {
-		if h.Binary == "helm3" {
+		if h.BinVersion == V3 {
 			args = append(args, "--timeout", fmt.Sprintf("%ss", strconv.Itoa(timeout)))
 		} else {
 			args = append(args, "--timeout", strconv.Itoa(timeout))
@@ -426,6 +458,9 @@ func (h *HelmCLI) UpgradeChart(chart string, releaseName string, ns string, vers
 	}
 	for _, value := range values {
 		args = append(args, "--set", value)
+	}
+	for _, value := range valueStrings {
+		args = append(args, "--set-string", value)
 	}
 	for _, valueFile := range valueFiles {
 		args = append(args, "--values", valueFile)
@@ -439,6 +474,10 @@ func (h *HelmCLI) UpgradeChart(chart string, releaseName string, ns string, vers
 	if password != "" {
 		args = append(args, "--password", password)
 	}
+	logLevel := os.Getenv("JX_HELM_VERBOSE")
+	if logLevel != "" {
+		args = append(args, "-v", logLevel)
+	}
 	args = append(args, releaseName, chart)
 
 	if h.Debug {
@@ -448,13 +487,6 @@ func (h *HelmCLI) UpgradeChart(chart string, releaseName string, ns string, vers
 	err = h.runHelm(args...)
 	if err != nil {
 		return err
-	}
-
-	if h.Binary == "helm3" {
-		err = h.setNamespace(currentNamespace)
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -532,28 +564,6 @@ func (h *HelmCLI) ListReleases(ns string) (map[string]ReleaseSummary, []string, 
 	return result, keys, nil
 }
 
-// SearchChartVersions search all version of the given chart
-func (h *HelmCLI) SearchChartVersions(chart string) ([]string, error) {
-	output, err := h.runHelmWithOutput("search", chart, "--versions")
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to search chart '%s'", chart)
-	}
-	versions := []string{}
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) > 1 {
-		for _, line := range lines[1:] {
-			fields := strings.Fields(line)
-			if len(fields) > 1 {
-				v := fields[1]
-				if v != "" {
-					versions = append(versions, v)
-				}
-			}
-		}
-	}
-	return versions, nil
-}
-
 // FindChart find a chart in the current working directory, if no chart file is found an error is returned
 func (h *HelmCLI) FindChart() (string, error) {
 	dir := h.CWD
@@ -601,7 +611,11 @@ func (h *HelmCLI) StatusReleaseWithOutput(ns string, releaseName string, outputF
 
 // Lint lints the helm chart from the current working directory and returns the warnings in the output
 func (h *HelmCLI) Lint(valuesFiles []string) (string, error) {
-	args := []string{"lint"}
+	args := []string{"lint",
+		"--set", "tags.jx-lint=true",
+		"--set", "global.jxLint=true",
+		"--set-string", "global.jxTypeEnv=lint",
+	}
 	for _, valueFile := range valuesFiles {
 		if valueFile != "" {
 			args = append(args, "--values", valueFile)
@@ -617,12 +631,17 @@ func (h *HelmCLI) Env() map[string]string {
 
 // Version executes the helm version command and returns its output
 func (h *HelmCLI) Version(tls bool) (string, error) {
-	return h.VersionWithArgs(tls)
+	versionString, err := h.VersionWithArgs(tls)
+	if err != nil {
+		return "", errors.Wrapf(err, "unable to query helm version")
+	}
+
+	return h.extractSemanticVersion(versionString)
 }
 
 // VersionWithArgs executes the helm version command and returns its output
 func (h *HelmCLI) VersionWithArgs(tls bool, extraArgs ...string) (string, error) {
-	args := []string{"version", "--short"}
+	args := []string{"version", "--short", "--client"}
 	if tls {
 		args = append(args, "--tls")
 	}
@@ -666,34 +685,19 @@ func addUsernamePasswordToURL(urlStr string, username string, password string) (
 	return urlStr, nil
 }
 
-func (h *HelmCLI) getCurrentNamespace() (string, error) {
-	config, _, err := h.Kube().LoadConfig()
-	if err != nil {
-		return "", errors.Wrap(err, "loading Kubernetes configuration")
-	}
-	currentNS := kube.CurrentNamespace(config)
-
-	return currentNS, nil
-}
-
-func (h *HelmCLI) setNamespace(namespace string) error {
-	config, pathOptions, err := h.Kube().LoadConfig()
-	if err != nil {
-		return errors.Wrap(err, "loading Kubernetes configuration")
+// extractSemanticVersion tries to extract a semantic version string substring from the specified string
+func (h *HelmCLI) extractSemanticVersion(versionString string) (string, error) {
+	r := regexp.MustCompile(`.*v?(?P<SemVer>\d+\.\d+\.\d+).*`)
+	match := r.FindStringSubmatch(versionString)
+	if match == nil {
+		return "", errors.Errorf("unable to extract a semantic version from %s", versionString)
 	}
 
-	newConfig := *config
-	ctx := kube.CurrentContext(config)
-	if ctx == nil {
-		return fmt.Errorf("unable to get context")
+	for i, name := range r.SubexpNames() {
+		if name == "SemVer" {
+			return match[i], nil
+		}
 	}
-	if ctx.Namespace == namespace {
-		return nil
-	}
-	ctx.Namespace = namespace
-	err = clientcmd.ModifyConfig(pathOptions, newConfig, false)
-	if err != nil {
-		return fmt.Errorf("failed to update the kube config %s", err)
-	}
-	return nil
+
+	return "", errors.Errorf("unable to extract a semantic version from %s", versionString)
 }

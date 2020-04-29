@@ -1,6 +1,7 @@
 package tekton
 
 import (
+	"bytes"
 	"context"
 	"io/ioutil"
 	"os"
@@ -13,6 +14,14 @@ import (
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
 	pipelineapi "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1alpha1"
+)
+
+const (
+	pipelineFileName          = "pipeline.yml"
+	pipelineRunFileName       = "pipelinerun.yml"
+	structureFileName         = "structure.yml"
+	pipelineResourcesFileName = "pipelineresources.yml"
+	tasksFileName             = "tasks.yml"
 )
 
 // CRDWrapper is a wrapper around the various Tekton CRDs
@@ -52,8 +61,6 @@ func NewCRDWrapper(pipeline *pipelineapi.Pipeline,
 func (crds *CRDWrapper) Name() string {
 	return crds.pipeline.Name
 }
-
-// TODO Should probably return values not pointers in these methods, but requires changes of all test data as well (HF)
 
 // Pipeline returns a pointer to the Tekton Pipeline.
 func (crds *CRDWrapper) Pipeline() *pipelineapi.Pipeline {
@@ -118,6 +125,30 @@ func (crds *CRDWrapper) ObjectReferences() []kube.ObjectReference {
 	return resources
 }
 
+func (crds *CRDWrapper) String() string {
+	var allResources []interface{}
+	allResources = append(allResources, crds.pipeline)
+	for _, task := range crds.tasks {
+		allResources = append(allResources, task)
+	}
+	for _, resource := range crds.resources {
+		allResources = append(allResources, resource)
+	}
+	allResources = append(allResources, crds.pipelineRun)
+
+	var buffer bytes.Buffer
+	buffer.WriteString("[")
+	for i, resource := range allResources {
+		buffer.WriteString(util.PrettyPrint(resource))
+		if i < len(allResources)-1 {
+			buffer.WriteString(",")
+		}
+	}
+	buffer.WriteString("]")
+
+	return buffer.String()
+}
+
 // TODO: Use the same YAML lib here as in buildpipeline/pipeline.go
 // TODO: Use interface{} with a helper function to reduce code repetition?
 // TODO: Take no arguments and use o.Results internally?
@@ -133,7 +164,7 @@ func (crds *CRDWrapper) WriteToDisk(dir string, pipelineActivity *kube.PromoteSt
 	if err != nil {
 		return errors.Wrap(err, "failed to marshal pipeline YAML")
 	}
-	fileName := filepath.Join(dir, "pipeline.yml")
+	fileName := filepath.Join(dir, pipelineFileName)
 	err = ioutil.WriteFile(fileName, data, util.DefaultWritePermissions)
 	if err != nil {
 		return errors.Wrapf(err, "failed to save pipeline file %s", fileName)
@@ -144,7 +175,7 @@ func (crds *CRDWrapper) WriteToDisk(dir string, pipelineActivity *kube.PromoteSt
 	if err != nil {
 		return errors.Wrapf(err, "failed to marshal pipelineRun YAML")
 	}
-	fileName = filepath.Join(dir, "pipeline-run.yml")
+	fileName = filepath.Join(dir, pipelineRunFileName)
 	err = ioutil.WriteFile(fileName, data, util.DefaultWritePermissions)
 	if err != nil {
 		return errors.Wrapf(err, "failed to save pipelineRun file %s", fileName)
@@ -156,7 +187,7 @@ func (crds *CRDWrapper) WriteToDisk(dir string, pipelineActivity *kube.PromoteSt
 		if err != nil {
 			return errors.Wrapf(err, "failed to marshal PipelineStructure YAML")
 		}
-		fileName = filepath.Join(dir, "structure.yml")
+		fileName = filepath.Join(dir, structureFileName)
 		err = ioutil.WriteFile(fileName, data, util.DefaultWritePermissions)
 		if err != nil {
 			return errors.Wrapf(err, "failed to save PipelineStructure file %s", fileName)
@@ -178,7 +209,7 @@ func (crds *CRDWrapper) WriteToDisk(dir string, pipelineActivity *kube.PromoteSt
 	if err != nil {
 		return errors.Wrapf(err, "failed to marshal Task YAML")
 	}
-	fileName = filepath.Join(dir, "tasks.yml")
+	fileName = filepath.Join(dir, tasksFileName)
 	err = ioutil.WriteFile(fileName, data, util.DefaultWritePermissions)
 	if err != nil {
 		return errors.Wrapf(err, "failed to save Task file %s", fileName)
@@ -189,7 +220,7 @@ func (crds *CRDWrapper) WriteToDisk(dir string, pipelineActivity *kube.PromoteSt
 	if err != nil {
 		return errors.Wrapf(err, "failed to marshal PipelineResource YAML")
 	}
-	fileName = filepath.Join(dir, "resources.yml")
+	fileName = filepath.Join(dir, pipelineResourcesFileName)
 	err = ioutil.WriteFile(fileName, data, util.DefaultWritePermissions)
 	if err != nil {
 		return errors.Wrapf(err, "failed to save PipelineResource file %s", fileName)

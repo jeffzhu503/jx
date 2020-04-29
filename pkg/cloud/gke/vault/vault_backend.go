@@ -2,19 +2,20 @@ package vault
 
 import (
 	"fmt"
-	"io"
 
-	"github.com/jenkins-x/jx/pkg/log"
-	"github.com/jenkins-x/jx/pkg/util"
-	"gopkg.in/AlecAivazis/survey.v1/terminal"
+	"github.com/jenkins-x/jx/pkg/kube"
 
 	"github.com/jenkins-x/jx/pkg/cloud/gke"
+	"github.com/jenkins-x/jx/pkg/log"
+	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
 	"k8s.io/client-go/kubernetes"
 )
 
 const (
 	gkeServiceAccountSecretKey = "service-account.json"
+	//DefaultVaultAbbreviation is vault service accounts suffix
+	DefaultVaultAbbreviation = "vt"
 )
 
 var (
@@ -36,30 +37,37 @@ type KmsConfig struct {
 // If they are generic enough and needed elsewhere, we can move them up one level to more generic GCP methods.
 
 // CreateKmsConfig creates a KMS config for the GKE Vault
-func CreateKmsConfig(vaultName, clusterName, projectId string) (*KmsConfig, error) {
+func CreateKmsConfig(gcloud gke.GClouder, vaultName, keyringName string, keyName string, projectID string) (*KmsConfig, error) {
+	if keyringName == "" {
+		keyringName = gke.KeyringName(vaultName)
+	}
 	config := &KmsConfig{
-		Keyring:  gke.KeyringName(vaultName),
-		Key:      gke.KeyName(vaultName),
+		Keyring:  keyringName,
+		Key:      keyName,
 		Location: gke.KmsLocation,
-		project:  projectId,
+		project:  projectID,
 	}
 
-	err := gke.CreateKmsKeyring(config.Keyring, config.project)
+	err := gcloud.CreateKmsKeyring(config.Keyring, config.project)
 	if err != nil {
 		return nil, errors.Wrapf(err, "creating kms keyring '%s'", config.Keyring)
 	}
 
-	err = gke.CreateKmsKey(config.Key, config.Keyring, config.project)
+	if config.Key == "" {
+		config.Key = gke.KeyName(vaultName)
+	}
+
+	err = gcloud.CreateKmsKey(config.Key, config.Keyring, config.project)
 	if err != nil {
-		return nil, errors.Wrapf(err, "crating the kms key '%s'", config.Key)
+		return nil, errors.Wrapf(err, "creating the kms key '%s'", config.Key)
 	}
 	return config, nil
 }
 
 // CreateGCPServiceAccount creates a service account in GCP for the vault service
-func CreateVaultGCPServiceAccount(kubeClient kubernetes.Interface, vaultName, namespace, clusterName, projectID string) (string, error) {
+func CreateVaultGCPServiceAccount(gcloud gke.GClouder, kubeClient kubernetes.Interface, vaultName, namespace, clusterName, projectID string) (string, error) {
 
-	gcpServiceAccountSecretName, error := gke.CreateGCPServiceAccount(kubeClient, vaultName, namespace, clusterName, projectID, ServiceAccountRoles, gkeServiceAccountSecretKey)
+	gcpServiceAccountSecretName, error := gcloud.CreateGCPServiceAccount(kubeClient, vaultName, DefaultVaultAbbreviation, namespace, clusterName, projectID, ServiceAccountRoles, gkeServiceAccountSecretKey)
 
 	if error != nil {
 		return "", errors.Wrap(error, "creating the Vault GCP Service Account")
@@ -68,9 +76,11 @@ func CreateVaultGCPServiceAccount(kubeClient kubernetes.Interface, vaultName, na
 }
 
 // CreateBucket Creates a bucket in GKE to store the backend (encrypted) data for vault
-func CreateBucket(vaultName, clusterName, projectID, zone string, recreate bool, batchMode bool, in terminal.FileReader, out terminal.FileWriter, outErr io.Writer) (string, error) {
-	bucketName := gke.BucketName(vaultName)
-	exists, err := gke.BucketExists(projectID, bucketName)
+func CreateBucket(gcloud gke.GClouder, vaultName, bucketName string, projectID, zone string, recreate bool, batchMode bool, handles util.IOFileHandles) (string, error) {
+	if bucketName == "" {
+		bucketName = gke.BucketName(vaultName)
+	}
+	exists, err := gcloud.BucketExists(projectID, bucketName)
 	if err != nil {
 		return "", errors.Wrap(err, "checking if Vault GCS bucket exists")
 	}
@@ -81,12 +91,12 @@ func CreateBucket(vaultName, clusterName, projectID, zone string, recreate bool,
 		if batchMode {
 			log.Logger().Warnf("We are deleting the Vault bucket %s so that Vault will install cleanly", bucketName)
 		} else {
-			if !util.Confirm(fmt.Sprintf("We are about to delete bucket %q, so we can install a clean Vault. Are you sure: ", bucketName),
-				true, "We recommend you delete the Vault bucket on install to ensure Vault starts up reliably", in, out, outErr) {
-				return bucketName, nil
+			if answer, err := util.Confirm(fmt.Sprintf("We are about to delete bucket %q, so we can install a clean Vault. Are you sure: ", bucketName),
+				true, "We recommend you delete the Vault bucket on install to ensure Vault starts up reliably", handles); !answer {
+				return bucketName, err
 			}
 		}
-		err = gke.DeleteAllObjectsInBucket(bucketName)
+		err = gcloud.DeleteAllObjectsInBucket(bucketName)
 		if err != nil {
 			return "", errors.Wrapf(err, "failed to remove objects from GCS bucket %s", bucketName)
 		}
@@ -96,9 +106,29 @@ func CreateBucket(vaultName, clusterName, projectID, zone string, recreate bool,
 		return "", errors.New("GKE zone must be provided in 'gke-zone' option")
 	}
 	region := gke.GetRegionFromZone(zone)
-	err = gke.CreateBucket(projectID, bucketName, region)
+	err = gcloud.CreateBucket(projectID, bucketName, region)
 	if err != nil {
 		return "", errors.Wrap(err, "creating Vault GCS bucket")
 	}
 	return bucketName, nil
+}
+
+// GetGoogleZone returns the Google zone as registered in the install values during the Jenkins X install process.
+// If the zone cannot be read the empty string is returned.
+func GetGoogleZone(kubeClient kubernetes.Interface, ns string) string {
+	data, err := kube.ReadInstallValues(kubeClient, ns)
+	if err != nil {
+		return ""
+	}
+	return data[kube.Zone]
+}
+
+// GetGoogleProjectID returns the Google project ID as registered in the install values during the Jenkins X install process.
+// If the project ID cannot be read the empty string is returned.
+func GetGoogleProjectID(kubeClient kubernetes.Interface, ns string) string {
+	data, err := kube.ReadInstallValues(kubeClient, ns)
+	if err != nil {
+		return ""
+	}
+	return data[kube.ProjectID]
 }

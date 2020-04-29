@@ -103,10 +103,10 @@ func (c *GitCollector) CollectFiles(patterns []string, outputPath string, basedi
 	}
 	err = gitClient.CommitDir(ghPagesDir, fmt.Sprintf("Publishing files for path %s", outputPath))
 	if err != nil {
-		fmt.Println(err)
+		log.Logger().Errorf("%s", err)
 		return urls, err
 	}
-	err = gitClient.Push(ghPagesDir)
+	err = gitClient.Push(ghPagesDir, "origin", false, c.gitBranch)
 	return urls, err
 }
 
@@ -154,13 +154,17 @@ func (c *GitCollector) CollectData(data []byte, outputPath string) (string, erro
 	if err != nil {
 		return u, err
 	}
-	err = gitClient.Push(ghPagesDir)
+	err = gitClient.Push(ghPagesDir, "origin", false, "HEAD:"+c.gitBranch)
 	return u, err
 }
 
-func (c *GitCollector) generateURL(storageOrg string, storageRepoName string, rPath string) string {
-	// TODO only supporting github for now!!!
-	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", storageOrg, storageRepoName, c.gitBranch, rPath)
+func (c *GitCollector) generateURL(storageOrg string, storageRepoName string, rPath string) (url string) {
+	if !c.gitInfo.IsGitHub() && gits.SaasGitKind(c.gitInfo.Host) == gits.KindGitHub {
+		url = fmt.Sprintf("https://raw.%s/%s/%s/%s/%s", c.gitInfo.Host, storageOrg, storageRepoName, c.gitBranch, rPath)
+	} else {
+		// TODO only supporting github for now!!!
+		url = fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/%s/%s", storageOrg, storageRepoName, c.gitBranch, rPath)
+	}
 	log.Logger().Infof("Publishing %s", util.ColorInfo(url))
 	return url
 }
@@ -173,8 +177,16 @@ func cloneGitHubPagesBranchToTempDir(sourceURL string, gitClient gits.Gitter, br
 		return ghPagesDir, err
 	}
 
-	err = gitClient.ShallowClone(ghPagesDir, sourceURL, branchName, "")
+	log.Logger().Infof("shallow cloning %s branch %s", sourceURL, branchName)
+	err = gitClient.ShallowCloneBranch(sourceURL, branchName, ghPagesDir)
 	if err != nil {
+		log.Logger().Warnf("failed to shallow clone %s branch %s due to: %s", sourceURL, branchName, err.Error())
+
+		os.RemoveAll(ghPagesDir)
+		ghPagesDir, err = ioutil.TempDir("", "jenkins-x-collect")
+		if err != nil {
+			return ghPagesDir, err
+		}
 		log.Logger().Infof("error doing shallow clone of branch %s: %v", branchName, err)
 		// swallow the error
 		log.Logger().Infof("No existing %s branch so creating it", branchName)

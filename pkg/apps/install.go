@@ -4,13 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	corev1 "k8s.io/api/core/v1"
@@ -21,8 +21,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"gopkg.in/AlecAivazis/survey.v1/terminal"
-
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/client/clientset/versioned"
 	"github.com/jenkins-x/jx/pkg/environments"
@@ -32,32 +30,30 @@ import (
 
 	"github.com/jenkins-x/jx/pkg/helm"
 	"github.com/jenkins-x/jx/pkg/log"
-	"github.com/jenkins-x/jx/pkg/surveyutils"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
 )
 
 // InstallOptions are shared options for installing, removing or upgrading apps for either GitOps or HelmOps
 type InstallOptions struct {
-	Helmer          helm.Helmer
-	KubeClient      kubernetes.Interface
-	InstallTimeout  string
-	JxClient        versioned.Interface
-	Namespace       string
-	EnvironmentsDir string
-	GitProvider     gits.GitProvider
-	ConfigureGitFn  gits.ConfigureGitFn
-	Gitter          gits.Gitter
-	Verbose         bool
-	DevEnv          *jenkinsv1.Environment
-	BatchMode       bool
-	In              terminal.FileReader
-	Out             terminal.FileWriter
-	Err             io.Writer
-	GitOps          bool
-	TeamName        string
-	VaultClient     vault.Client
-	AutoMerge       bool
+	Helmer              helm.Helmer
+	KubeClient          kubernetes.Interface
+	InstallTimeout      string
+	JxClient            versioned.Interface
+	Namespace           string
+	EnvironmentCloneDir string
+	GitProvider         gits.GitProvider
+	Gitter              gits.Gitter
+	Verbose             bool
+	DevEnv              *jenkinsv1.Environment
+	BatchMode           bool
+	IOFileHandles       util.IOFileHandles
+	GitOps              bool
+	TeamName            string
+	BasePath            string
+	VaultClient         vault.Client
+	AutoMerge           bool
+	SecretsScheme       string
 
 	valuesFiles *environments.ValuesFiles // internal variable used to track, most be passed in
 }
@@ -73,13 +69,12 @@ func (o *InstallOptions) AddApp(app string, version string, repository string, u
 		Items: valuesFiles,
 	}
 
-	username, password, err := helm.DecorateWithCredentials(repository, username, password, o.VaultClient, o.In,
-		o.Out, o.Err)
+	username, password, err := helm.DecorateWithCredentials(repository, username, password, o.VaultClient, o.IOFileHandles)
 	if err != nil {
 		return errors.Wrapf(err, "locating credentials for %s", repository)
 	}
 
-	_, err = helm.AddHelmRepoIfMissing(repository, "", username, password, o.Helmer, o.VaultClient, o.In, o.Out, o.Err)
+	_, err = helm.AddHelmRepoIfMissing(repository, "", username, password, o.Helmer, o.VaultClient, o.IOFileHandles)
 	if err != nil {
 		return errors.Wrapf(err, "adding helm repo")
 	}
@@ -109,7 +104,7 @@ func (o *InstallOptions) AddApp(app string, version string, repository string, u
 			opts := GitOpsOptions{
 				InstallOptions: o,
 			}
-			err := opts.AddApp(chartDetails.Name, dir, chartDetails.Version, repository, alias, o.AutoMerge)
+			err = opts.AddApp(chartDetails.Name, dir, chartDetails.Version, repository, alias, o.AutoMerge)
 			if err != nil {
 				return errors.Wrapf(err, "adding app %s version %s with alias %s using gitops", chartName, version, alias)
 			}
@@ -119,6 +114,13 @@ func (o *InstallOptions) AddApp(app string, version string, repository string, u
 			}
 			if releaseName == "" {
 				releaseName = fmt.Sprintf("%s-%s", o.Namespace, chartDetails.Name)
+			}
+			if helm.IsLocal(chartName) {
+				// We need to manually build the dependencies
+				err = opts.Helmer.BuildDependency()
+				if err != nil {
+					return errors.Wrapf(err, "building dependencies for %s", chartName)
+				}
 			}
 			err = opts.AddApp(chartName, dir, chartDetails.Name, chartDetails.Version, chartDetails.Values, repository,
 				username, password,
@@ -215,12 +217,11 @@ func (o *InstallOptions) UpgradeApp(app string, version string, repository strin
 		releaseName = fmt.Sprintf("%s-%s", o.Namespace, app)
 	}
 
-	username, password, err := helm.DecorateWithCredentials(repository, username, password, o.VaultClient, o.In,
-		o.Out, o.Err)
+	username, password, err := helm.DecorateWithCredentials(repository, username, password, o.VaultClient, o.IOFileHandles)
 	if err != nil {
 		return errors.Wrapf(err, "locating credentials for %s", repository)
 	}
-	_, err = helm.AddHelmRepoIfMissing(repository, "", username, password, o.Helmer, o.VaultClient, o.In, o.Out, o.Err)
+	_, err = helm.AddHelmRepoIfMissing(repository, "", username, password, o.Helmer, o.VaultClient, o.IOFileHandles)
 
 	if err != nil {
 		return errors.Wrapf(err, "adding helm repo")
@@ -333,15 +334,14 @@ func (o *InstallOptions) createInterrogateChartFn(version string, chartName stri
 			chartDetails.Version = version
 		}
 
-		requirements, err := helm.LoadRequirementsFile(helm.RequirementsFileName)
+		requirements, err := helm.LoadRequirementsFile(filepath.Join(chartDir, helm.RequirementsFileName))
 		if err != nil {
 			return &chartDetails, errors.Wrapf(err, "loading requirements.yaml for %s", chartDir)
 		}
 		for _, requirement := range requirements.Dependencies {
 			// repositories that start with an @ are aliases to helm repo names
 			if !strings.HasPrefix(requirement.Repository, "@") {
-				_, err := helm.AddHelmRepoIfMissing(requirement.Repository, "", "", "", o.Helmer, o.VaultClient, o.In,
-					o.Out, o.Err)
+				_, err := helm.AddHelmRepoIfMissing(requirement.Repository, "", "", "", o.Helmer, o.VaultClient, o.IOFileHandles)
 				if err != nil {
 					return &chartDetails, errors.Wrapf(err, "")
 				}
@@ -503,7 +503,7 @@ func (o *InstallOptions) createInterrogateChartFn(version string, chartName stri
 						RestartPolicy:      corev1.RestartPolicyNever,
 					},
 				}
-				log.Logger().Infof("Preparing questions to configure %s."+
+				log.Logger().Infof("Preparing questions to configure %s. "+
 					"If this is the first time you have installed the app, this may take a couple of minutes.",
 					chartDetails.Name)
 				_, err = o.KubeClient.CoreV1().Pods(o.Namespace).Create(&pod)
@@ -536,7 +536,7 @@ func (o *InstallOptions) createInterrogateChartFn(version string, chartName stri
 				if kube.PodStatus(completePod) == string(corev1.PodFailed) {
 					log.Logger().Errorf("Pod Log")
 					log.Logger().Errorf("-----------")
-					err := kube.TailLogs(o.Namespace, pod.Name, appResource.Spec.SchemaPreprocessor.Name, o.Err, o.Out)
+					err := kube.TailLogs(o.Namespace, pod.Name, appResource.Spec.SchemaPreprocessor.Name, o.IOFileHandles.Err, o.IOFileHandles.Out)
 					log.Logger().Errorf("-----------")
 					if err != nil {
 						return &chartDetails, errors.Wrapf(err, "getting pod logs for %s container %s", pod.Name,
@@ -558,43 +558,25 @@ func (o *InstallOptions) createInterrogateChartFn(version string, chartName stri
 				}
 			}
 
-			if err != nil {
-				return &chartDetails, errors.Wrapf(err, "locating app resource for %s", chartName)
-			}
-			var secrets []*surveyutils.GeneratedSecret
-			var basepath string
+			gitOpsURL := ""
 			if o.GitOps {
-				gitInfo, err := gits.ParseGitURL(o.DevEnv.Spec.Source.URL)
+				gitOpsURL = o.DevEnv.Spec.Source.URL
+			}
+			if schema != nil {
+				valuesFileName, cleanup, err := ProcessValues(schema, chartName, gitOpsURL, o.TeamName, o.BasePath, o.BatchMode, askExisting, o.VaultClient, existing, o.SecretsScheme, o.IOFileHandles, o.Verbose)
+				chartDetails.Cleanup = cleanup
 				if err != nil {
-					return nil, err
+					return &chartDetails, errors.WithStack(err)
 				}
-				basepath = strings.Join([]string{"gitOps", gitInfo.Organisation, gitInfo.Name}, "/")
-			} else {
-				basepath = strings.Join([]string{"teams", o.TeamName}, "/")
+				if valuesFileName != "" {
+					o.valuesFiles.Items = append(o.valuesFiles.Items, valuesFileName)
+				}
+				values, err = ioutil.ReadFile(valuesFileName)
+				if err != nil {
+					return &chartDetails, errors.Wrapf(err, "reading %s", valuesFileName)
+				}
 			}
-			values, secrets, err = GenerateQuestions(schema, o.BatchMode, askExisting, basepath, o.VaultClient != nil, existing, o.In, o.Out, o.Err)
-			if err != nil {
-				return &chartDetails, errors.Wrapf(err, "asking questions for schema %s", schemaFile)
-			}
-			cleanupValues, err := o.handleValues(chartDir, chartName, values)
-			chartDetails.Cleanup = func() {
-				cleanupValues()
-			}
-			if err != nil {
-				return &chartDetails, err
-			}
-			cleanupSecrets, err := o.handleSecrets(chartDir, chartName, secrets)
-			chartDetails.Cleanup = func() {
-				cleanupSecrets()
-				cleanupValues()
-			}
-			if err != nil {
-				return &chartDetails, err
-			}
-			chartDetails.Cleanup = func() {
-				cleanupSecrets()
-				cleanupValues()
-			}
+
 		}
 		chartDetails.Values = values
 		return &chartDetails, nil
@@ -607,37 +589,7 @@ func toValidName(appName string, name string, id string) string {
 	if l > 20 {
 		l = 20
 	}
-	return kube.ToValidName(fmt.Sprintf("%s-%s", base[0:l], id))
-}
-
-func (o *InstallOptions) handleValues(dir string, chartName string, values []byte) (func(), error) {
-	valuesFile, cleanup, err := AddValuesToChart(chartName, values, o.Verbose)
-	if err != nil {
-		return cleanup, err
-	}
-	if valuesFile != "" {
-		o.valuesFiles.Items = append(o.valuesFiles.Items, valuesFile)
-	}
-	return cleanup, nil
-}
-
-func (o *InstallOptions) handleSecrets(dir string, chartName string, generatedSecrets []*surveyutils.GeneratedSecret) (func(),
-	error) {
-	if o.VaultClient != nil {
-		f, err := AddSecretsToVault(generatedSecrets, o.VaultClient)
-		if err != nil {
-			return func() {}, errors.Wrapf(err, "adding secrets to vault for %s", chartName)
-		}
-		return f, nil
-	}
-	secretsFile, f, err := AddSecretsToTemplate(dir, chartName, generatedSecrets)
-	if err != nil {
-		return func() {}, errors.Wrapf(err, "adding secrets to template for %s", chartName)
-	}
-	if secretsFile != "" {
-		o.valuesFiles.Items = append(o.valuesFiles.Items, secretsFile)
-	}
-	return f, nil
+	return naming.ToValidName(fmt.Sprintf("%s-%s", base[0:l], id))
 }
 
 func (o *InstallOptions) getPrefixes() []string {
@@ -666,7 +618,7 @@ func (o *InstallOptions) resolvePrefixesAgainstRepos(repository string, chartNam
 			possiblesRepoNames = append(possiblesRepoNames, repo)
 		}
 	}
-	charts, err := o.Helmer.SearchCharts("")
+	charts, err := o.Helmer.SearchCharts("", false)
 	if err != nil {
 		return "", errors.Wrapf(err, "searching charts")
 	}

@@ -3,26 +3,22 @@ package vault
 import (
 	"errors"
 	"fmt"
-	"io"
 
 	"github.com/banzaicloud/bank-vaults/operator/pkg/client/clientset/versioned"
 	"github.com/jenkins-x/jx/pkg/util"
-	"gopkg.in/AlecAivazis/survey.v1/terminal"
 	"k8s.io/client-go/kubernetes"
 )
 
 // Selector is an interface for selecting a vault from the installed ones on the platform
 // It should pick the most logical one, or give the user a way of picking a vault if there are multiple installed
 type Selector interface {
-	GetVault(name string, namespace string) (*Vault, error)
+	GetVault(name string, namespace string, useIngressURL bool) (*Vault, error)
 }
 
 type vaultSelector struct {
 	vaultOperatorClient versioned.Interface
 	kubeClient          kubernetes.Interface
-	In                  terminal.FileReader
-	Out                 terminal.FileWriter
-	Err                 io.Writer
+	Handles             util.IOFileHandles
 }
 
 // NewVaultSelector creates a new vault selector
@@ -35,17 +31,18 @@ func NewVaultSelector(o OptionsInterface) (Selector, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	v := &vaultSelector{
 		vaultOperatorClient: operator,
 		kubeClient:          kubeclient,
+		Handles:             o.GetIOFileHandles(),
 	}
-	v.In, v.Out, v.Err = o.GetIn(), o.GetOut(), o.GetErr()
 	return v, nil
 }
 
 // GetVault retrieve the given vault by name
-func (v *vaultSelector) GetVault(name string, namespace string) (*Vault, error) {
-	vaults, err := GetVaults(v.kubeClient, v.vaultOperatorClient, namespace)
+func (v *vaultSelector) GetVault(name string, namespace string, useIngressURL bool) (*Vault, error) {
+	vaults, err := GetVaults(v.kubeClient, v.vaultOperatorClient, namespace, useIngressURL)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +74,7 @@ func (v *vaultSelector) selectVault(vaults []*Vault) (*Vault, error) {
 		vaultNames[i] = vault.Name
 	}
 
-	vaultName, err := util.PickName(vaultNames, "Select Vault:", "", v.In, v.Out, v.Err)
+	vaultName, err := util.PickName(vaultNames, "Select Vault:", "", v.Handles)
 	if err != nil {
 		return nil, err
 	}

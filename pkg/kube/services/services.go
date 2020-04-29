@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jenkins-x/jx/pkg/kube"
+	"github.com/jenkins-x/jx/pkg/log"
 
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/extensions/v1beta1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -87,34 +92,101 @@ func GetServiceURLFromMap(services map[string]*v1.Service, name string) string {
 }
 
 func FindServiceURL(client kubernetes.Interface, namespace string, name string) (string, error) {
+	log.Logger().Debugf("Finding service url for %s in namespace %s", name, namespace)
 	svc, err := client.CoreV1().Services(namespace).Get(name, meta_v1.GetOptions{})
 	if err != nil {
-		return "", errors.Wrapf(err, "failed to find service %s in namespace %s", name, namespace)
+		return "", errors.Wrapf(err, "finding the service %s in namespace %s", name, namespace)
 	}
 	answer := GetServiceURL(svc)
 	if answer != "" {
+		log.Logger().Debugf("Found service url %s", answer)
 		return answer, nil
 	}
 
+	log.Logger().Debugf("Couldn't find service url, attempting to look up via ingress")
+
 	// lets try find the service via Ingress
 	ing, err := client.ExtensionsV1beta1().Ingresses(namespace).Get(name, meta_v1.GetOptions{})
-	if ing != nil && err == nil {
+	if err != nil {
+		log.Logger().Debugf("Unable to finding ingress for %s in namespace %s - err %s", name, namespace, err)
+		return "", errors.Wrapf(err, "getting ingress for service %q in namespace %s", name, namespace)
+	}
+
+	url := IngressURL(ing)
+	if url == "" {
+		log.Logger().Debugf("Unable to find service url via ingress for %s in namespace %s", name, namespace)
+	}
+	return url, nil
+}
+
+func FindIngressURL(client kubernetes.Interface, namespace string, name string) (string, error) {
+	log.Logger().Debugf("Finding ingress url for %s in namespace %s", name, namespace)
+	// lets try find the service via Ingress
+	ing, err := client.ExtensionsV1beta1().Ingresses(namespace).Get(name, meta_v1.GetOptions{})
+	if err != nil {
+		log.Logger().Debugf("Error finding ingress for %s in namespace %s - err %s", name, namespace, err)
+		return "", nil
+	}
+
+	url := IngressURL(ing)
+	if url == "" {
+		log.Logger().Debugf("Unable to find url via ingress for %s in namespace %s", name, namespace)
+	}
+	return url, nil
+}
+
+// IngressURL returns the URL for the ingres
+func IngressURL(ing *v1beta1.Ingress) string {
+	if ing != nil {
 		if len(ing.Spec.Rules) > 0 {
 			rule := ing.Spec.Rules[0]
 			hostname := rule.Host
 			for _, tls := range ing.Spec.TLS {
 				for _, h := range tls.Hosts {
 					if h != "" {
-						return "https://" + h, nil
+						url := "https://" + h
+						log.Logger().Debugf("found service url %s", url)
+						return url
 					}
 				}
 			}
 			if hostname != "" {
-				return "http://" + hostname, nil
+				url := "http://" + hostname
+				log.Logger().Debugf("found service url %s", url)
+				return url
 			}
 		}
 	}
-	return "", nil
+	return ""
+}
+
+// IngressHost returns the host for the ingres
+func IngressHost(ing *v1beta1.Ingress) string {
+	if ing != nil {
+		if len(ing.Spec.Rules) > 0 {
+			rule := ing.Spec.Rules[0]
+			hostname := rule.Host
+			for _, tls := range ing.Spec.TLS {
+				for _, h := range tls.Hosts {
+					if h != "" {
+						return h
+					}
+				}
+			}
+			if hostname != "" {
+				return hostname
+			}
+		}
+	}
+	return ""
+}
+
+// IngressProtocol returns the scheme (https / http) for the Ingress
+func IngressProtocol(ing *v1beta1.Ingress) string {
+	if ing != nil && len(ing.Spec.TLS) == 0 {
+		return "http"
+	}
+	return "https"
 }
 
 func FindServiceHostname(client kubernetes.Interface, namespace string, name string) (string, error) {
@@ -184,12 +256,17 @@ func GetServiceURL(svc *v1.Service) string {
 	return url
 }
 
-func GetServiceURLFromName(c kubernetes.Interface, name, ns string) (string, error) {
-	svc, err := c.CoreV1().Services(ns).Get(name, meta_v1.GetOptions{})
+// FindServiceSchemePort parses the service definition and interprets http scheme in the absence of an external ingress
+func FindServiceSchemePort(client kubernetes.Interface, namespace string, name string) (string, string, error) {
+	svc, err := client.CoreV1().Services(namespace).Get(name, meta_v1.GetOptions{})
 	if err != nil {
-		return "", err
+		return "", "", errors.Wrapf(err, "failed to find service %s in namespace %s", name, namespace)
 	}
-	return GetServiceURL(svc), nil
+	return ExtractServiceSchemePort(svc)
+}
+
+func GetServiceURLFromName(c kubernetes.Interface, name, ns string) (string, error) {
+	return FindServiceURL(c, ns, name)
 }
 
 func FindServiceURLs(client kubernetes.Interface, namespace string) ([]ServiceURL, error) {
@@ -201,6 +278,9 @@ func FindServiceURLs(client kubernetes.Interface, namespace string) ([]ServiceUR
 	}
 	for _, svc := range svcs.Items {
 		url := GetServiceURL(&svc)
+		if url == "" {
+			url, _ = FindServiceURL(client, namespace, svc.Name)
+		}
 		if len(url) > 0 {
 			urls = append(urls, ServiceURL{
 				Name: svc.Name,
@@ -393,6 +473,43 @@ func AnnotateServicesWithCertManagerIssuer(c kubernetes.Interface, ns, issuer st
 	return result, nil
 }
 
+// AnnotateServicesWithBasicAuth annotates the services with nginx baisc auth annotations
+func AnnotateServicesWithBasicAuth(client kubernetes.Interface, ns string, services ...string) error {
+	if len(services) == 0 {
+		return nil
+	}
+	svcList, err := GetServices(client, ns)
+	if err != nil {
+		return errors.Wrapf(err, "retrieving the services from namespace %q", ns)
+	}
+	for _, service := range svcList {
+		// Check if the service is in the white-list
+		idx := util.StringArrayIndex(services, service.GetName())
+		if idx < 0 {
+			continue
+		}
+		if service.Annotations == nil {
+			service.Annotations = map[string]string{}
+		}
+		// Add the required basic authentication annotation for nginx-ingress controller
+		ingressAnnotations := service.Annotations[ExposeIngressAnnotation]
+		basicAuthAnnotations := fmt.Sprintf(
+			"nginx.ingress.kubernetes.io/auth-type: basic\nnginx.ingress.kubernetes.io/auth-secret: %s\nnginx.ingress.kubernetes.io/auth-realm: Authentication is required to access this service",
+			kube.SecretBasicAuth)
+		if ingressAnnotations != "" {
+			ingressAnnotations = ingressAnnotations + "\n" + basicAuthAnnotations
+		} else {
+			ingressAnnotations = basicAuthAnnotations
+		}
+		service.Annotations[ExposeIngressAnnotation] = ingressAnnotations
+		_, err = client.CoreV1().Services(ns).Update(service)
+		if err != nil {
+			return errors.Wrapf(err, "updating the service %q in namesapce %q", service.GetName(), ns)
+		}
+	}
+	return nil
+}
+
 func CleanServiceAnnotations(c kubernetes.Interface, ns string, services ...string) error {
 	svcList, err := GetServices(c, ns)
 	if err != nil {
@@ -409,7 +526,7 @@ func CleanServiceAnnotations(c kubernetes.Interface, ns string, services ...stri
 		}
 		if s.Annotations[ExposeAnnotation] == "true" && s.Annotations[JenkinsXSkipTLSAnnotation] != "true" {
 			// if no existing `fabric8.io/ingress.annotations` initialise and add else update with ClusterIssuer
-			annotationsForIngress, _ := s.Annotations[ExposeIngressAnnotation]
+			annotationsForIngress := s.Annotations[ExposeIngressAnnotation]
 			if len(annotationsForIngress) > 0 {
 
 				var newAnnotations []string
@@ -441,4 +558,58 @@ func CleanServiceAnnotations(c kubernetes.Interface, ns string, services ...stri
 		}
 	}
 	return nil
+}
+
+// ExtractServiceSchemePort is a utility function to interpret http scheme and port information from k8s service definitions
+func ExtractServiceSchemePort(svc *v1.Service) (string, string, error) {
+	scheme := ""
+	port := ""
+
+	found := false
+
+	// Search in order of degrading priority
+	for _, p := range svc.Spec.Ports {
+		if p.Port == 443 { // Prefer 443/https if found
+			scheme = "https"
+			port = "443"
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		for _, p := range svc.Spec.Ports {
+			if p.Port == 80 { // Use 80/http if found
+				scheme = "http"
+				port = "80"
+				found = true
+			}
+		}
+	}
+
+	if !found { // No conventional ports, so search for named https ports
+		for _, p := range svc.Spec.Ports {
+			if p.Protocol == "TCP" {
+				if p.Name == "https" {
+					scheme = "https"
+					port = strconv.FormatInt(int64(p.Port), 10)
+					found = true
+					break
+				}
+			}
+		}
+	}
+
+	if !found { // No conventional ports, so search for named http ports
+		for _, p := range svc.Spec.Ports {
+			if p.Name == "http" {
+				scheme = "http"
+				port = strconv.FormatInt(int64(p.Port), 10)
+				found = true
+				break
+			}
+		}
+	}
+
+	return scheme, port, nil
 }

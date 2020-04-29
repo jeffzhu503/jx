@@ -1,9 +1,24 @@
 package v1
 
 import (
+	"encoding/json"
+	"errors"
+
+	"github.com/jenkins-x/jx/pkg/log"
 	batchv1 "k8s.io/api/batch/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+const (
+	// ClassicWorkloadBuildPackURL the git URL for classic workload build packs
+	ClassicWorkloadBuildPackURL = "https://github.com/jenkins-x-buildpacks/jenkins-x-classic.git"
+	// ClassicWorkloadBuildPackRef the git reference/version for the classic workloads build packs
+	ClassicWorkloadBuildPackRef = "master"
+	// KubernetesWorkloadBuildPackURL the git URL for kubernetes workloads build packs
+	KubernetesWorkloadBuildPackURL = "https://github.com/jenkins-x-buildpacks/jenkins-x-kubernetes.git"
+	// KubernetesWorkloadBuildPackRef the git reference/version for the kubernetes workloads build packs
+	KubernetesWorkloadBuildPackRef = "master"
 )
 
 // +genclient
@@ -107,20 +122,35 @@ const (
 type ProwEngineType string
 
 const (
-	// ProwEngineTypeKnativeBuild represents the Knative Build engine for use with Prow
-	ProwEngineTypeKnativeBuild ProwEngineType = "KnativeBuild"
-
 	// ProwEngineTypeTekton represents using Tekton as the execution engine with Prow
 	ProwEngineTypeTekton ProwEngineType = "Tekton"
+)
+
+// ProwConfigType is the type of prow configuration
+type ProwConfigType string
+
+const (
+	// ProwConfigScheduler when we use the Scheduler CRDs to generate the Prow ConfigMaps
+	ProwConfigScheduler ProwConfigType = "Scheduler"
+
+	// ProwConfigLegacy when we manually modify the Prow ConfigMaps 'config' and 'plugins' by hand
+	ProwConfigLegacy ProwConfigType = "Legacy"
 )
 
 // WebHookEngineType is the type of webhook processing implementation the team uses
 type WebHookEngineType string
 
 const (
-	WebHookEngineNone    WebHookEngineType = ""
+	// WebHookEngineNone indicates no webhook being configured
+	WebHookEngineNone WebHookEngineType = ""
+	// WebHookEngineJenkins specifies that we use jenkins webhooks
 	WebHookEngineJenkins WebHookEngineType = "Jenkins"
-	WebHookEngineProw    WebHookEngineType = "Prow"
+	// WebHookEngineProw specifies that we use prow for webhooks
+	// see: https://github.com/kubernetes/test-infra/tree/master/prow
+	WebHookEngineProw WebHookEngineType = "Prow"
+	// WebHookEngineLighthouse specifies that we use lighthouse for webhooks
+	// see: https://github.com/jenkins-x/lighthouse
+	WebHookEngineLighthouse WebHookEngineType = "Lighthouse"
 )
 
 // IsPermanent returns true if this environment is permanent
@@ -155,6 +185,15 @@ type EnvironmentRepository struct {
 	Ref  string                    `json:"ref,omitempty" protobuf:"bytes,3,opt,name=ref"`
 }
 
+// DeployOptions configures options for how to deploy applications by default such as using progressive delivery or using horizontal pod autoscaler
+type DeployOptions struct {
+	// Canary should we enable canary rollouts (progressive delivery) for apps by default
+	Canary bool `json:"canary,omitempty" protobuf:"bytes,1,opt,name=canary"`
+
+	// should we use the horizontal pod autoscaler on new apps by default?
+	HPA bool `json:"hpa,omitempty" protobuf:"bytes,2,opt,name=hpa"`
+}
+
 // TeamSettings the default settings for a team
 type TeamSettings struct {
 	UseGitOps           bool                 `json:"useGitOps,omitempty" protobuf:"bytes,1,opt,name=useGitOps"`
@@ -173,13 +212,16 @@ type TeamSettings struct {
 	Organisation        string               `json:"organisation,omitempty" protobuf:"bytes,14,opt,name=organisation" command:"organisation" commandUsage:"Default git organisation for new repositories"`
 	EnvOrganisation     string               `json:"envOrganisation,omitempty" protobuf:"bytes,14,opt,name=envOrganisation" command:"envOrganisation" commandUsage:"Default git organisation for new environment repositories"`
 	PipelineUsername    string               `json:"pipelineUsername,omitempty" protobuf:"bytes,15,opt,name=pipelineUsername" command:"pipelineusername" commandUsage:"User used by pipeline. Is given write permission on new repositories."`
+	PipelineUserEmail   string               `json:"pipelineUserEmail,omitempty" protobuf:"bytes,15,opt,name=pipelineUserEmail" command:"pipelineuseremail" commandUsage:"Users email used by pipeline. Is given write permission on new repositories."`
 	DockerRegistryOrg   string               `json:"dockerRegistryOrg,omitempty" protobuf:"bytes,16,opt,name=dockerRegistryOrg" command:"dockerregistryorg" commandUsage:"Docker registry organisation used for new projects in Jenkins X."`
-	GitPrivate          bool                 `json:"gitPrivate,omitempty" protobuf:"bytes,17,opt,name=gitPrivate" command:"gitprivate" commandUsage:"Are new repositories private by default"`
+	GitPublic           bool                 `json:"gitPublic,omitempty" protobuf:"bytes,17,opt,name=gitPublic" command:"gitpublic" commandUsage:"Are new repositories public by default"`
 	KubeProvider        string               `json:"kubeProvider,omitempty" protobuf:"bytes,18,opt,name=kubeProvider"`
 	AppsRepository      string               `json:"appsRepository,omitempty" protobuf:"bytes,19,opt,name=appsRepository"`
 	BuildPackName       string               `json:"buildPackName,omitempty" protobuf:"bytes,20,opt,name=buildPackName"`
 	StorageLocations    []StorageLocation    `json:"storageLocations,omitempty" protobuf:"bytes,21,opt,name=storageLocations"`
-	DeployKind          string               `json:"deployKind,omitempty" protobuf:"bytes,24,opt,name=deployKind"`
+
+	// DeployKind what kind of deployment ("default" uses regular Kubernetes Services and Deployments, "knative" uses the Knative Service resource instead)
+	DeployKind string `json:"deployKind,omitempty" protobuf:"bytes,24,opt,name=deployKind"`
 
 	// ImportMode indicates what kind of
 	ImportMode ImportModeType `json:"importMode,omitempty" protobuf:"bytes,22,opt,name=importMode"`
@@ -196,6 +238,18 @@ type TeamSettings struct {
 	// AppsPrefixes is the list of prefixes for appNames
 	AppsPrefixes     []string          `json:"appPrefixes,omitempty" protobuf:"bytes,27,opt,name=appPrefixes"`
 	DefaultScheduler ResourceReference `json:"defaultScheduler,omitempty" protobuf:"bytes,28,opt,name=defaultScheduler"`
+
+	// ProwConfig is the way we manage prow configurations
+	ProwConfig ProwConfigType `json:"prowConfig,omitempty" protobuf:"bytes,29,opt,name=prowConfig"`
+
+	// Profile is the profile in use (see jx profile)
+	Profile string `json:"profile,omitempty" protobuf:"bytes,30,opt,name=profile"`
+
+	// BootRequirements is a marshaled string of the jx-requirements.yml used in the most recent run for this cluster
+	BootRequirements string `json:"bootRequirements,omitempty" protobuf:"bytes,31,opt,name=bootRequirements"`
+
+	// DeployOptions configures options for how to deploy applications by default such as using canary rollouts (progressive delivery) or using horizontal pod autoscaler
+	DeployOptions *DeployOptions `json:"deployOptions,omitempty" protobuf:"bytes,32,opt,name=deployOptions"`
 }
 
 // StorageLocation
@@ -330,7 +384,11 @@ func (t *TeamSettings) SetStorageLocation(classifier string, storage StorageLoca
 // GetImportMode returns the import mode - returning a default value if it has not been populated yet
 func (t *TeamSettings) GetImportMode() ImportModeType {
 	if string(t.ImportMode) == "" {
-		return ImportModeTypeJenkinsfile
+		if t.IsJenkinsXPipelines() {
+			t.ImportMode = ImportModeTypeYAML
+		} else {
+			t.ImportMode = ImportModeTypeJenkinsfile
+		}
 	}
 	return t.ImportMode
 }
@@ -338,9 +396,40 @@ func (t *TeamSettings) GetImportMode() ImportModeType {
 // GetProwEngine returns the import mode - returning a default value if it has not been populated yet
 func (t *TeamSettings) GetProwEngine() ProwEngineType {
 	if string(t.ProwEngine) == "" {
-		return ProwEngineTypeTekton
+		t.ProwEngine = ProwEngineTypeTekton
 	}
 	return t.ProwEngine
+}
+
+// GetProwConfig returns the kind of prow configuration
+func (t *TeamSettings) GetProwConfig() ProwConfigType {
+	if string(t.ProwConfig) == "" {
+		t.ProwConfig = ProwConfigLegacy
+	}
+	return t.ProwConfig
+}
+
+// GetDeployOptions returns the default deploy options for a team
+func (t *TeamSettings) GetDeployOptions() DeployOptions {
+	if t.DeployOptions != nil {
+		return *t.DeployOptions
+	}
+	return DeployOptions{}
+}
+
+// DefaultMissingValues defaults any missing values
+func (t *TeamSettings) DefaultMissingValues() {
+	if t.BuildPackURL == "" {
+		t.BuildPackURL = KubernetesWorkloadBuildPackURL
+	}
+	if t.BuildPackRef == "" {
+		t.BuildPackRef = KubernetesWorkloadBuildPackRef
+	}
+
+	// lets invoke the getters to lazily populate any missing values
+	t.GetProwConfig()
+	t.GetProwEngine()
+	t.GetImportMode()
 }
 
 // IsJenkinsXPipelines returns true if using tekton
@@ -348,9 +437,66 @@ func (t *TeamSettings) IsJenkinsXPipelines() bool {
 	return t.IsProw() && t.GetProwEngine() == ProwEngineTypeTekton
 }
 
+// IsSchedulerMode returns true if we setup Prow configuration via the Scheduler CRDs
+// rather than directly modifying the Prow ConfigMaps directly
+func (t *TeamSettings) IsSchedulerMode() bool {
+	return t.IsProw() && t.GetProwConfig() == ProwConfigScheduler
+}
+
 // IsProw returns true if using Prow
 func (t *TeamSettings) IsProw() bool {
 	return t.PromotionEngine == PromotionEngineProw
+}
+
+// UnmarshalJSON method handles the rename of GitPrivate to GitPublic.
+func (t *TeamSettings) UnmarshalJSON(data []byte) error {
+	// need a type alias to go into infinite loop
+	type Alias TeamSettings
+	aux := &struct {
+		*Alias
+	}{
+		Alias: (*Alias)(t),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	var raw map[string]json.RawMessage
+	err := json.Unmarshal(data, &raw)
+	if err != nil {
+		return err
+	}
+
+	_, gitPublicSet := raw["gitPublic"]
+	private, gitPrivateSet := raw["gitPrivate"]
+
+	if gitPrivateSet && gitPublicSet {
+		return errors.New("found settings for GitPublic as well as GitPrivate in TeamSettings, only GitPublic should be used")
+	}
+
+	if gitPrivateSet {
+		log.Logger().Debug("GitPrivate specified in TeamSettings. GitPrivate is deprecated use GitPublic instead.")
+		privateString := string(private)
+		if privateString == "true" {
+			t.GitPublic = false
+		} else {
+			t.GitPublic = true
+		}
+	}
+	return nil
+}
+
+// IsProwOrLighthouse returns true if either Prow or Lighthouse is being used.
+// e.g. using the Prow based configuration model
+func (e *EnvironmentSpec) IsProwOrLighthouse() bool {
+	w := e.WebHookEngine
+	return w == WebHookEngineProw || w == WebHookEngineLighthouse
+}
+
+// IsLighthouse returns true if we are using lighthouse as the webhook handler
+func (e *EnvironmentSpec) IsLighthouse() bool {
+	return e.WebHookEngine == WebHookEngineLighthouse
 }
 
 // IsEmpty returns true if the storage location is empty

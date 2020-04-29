@@ -1,3 +1,5 @@
+// +build unit
+
 package vault_test
 
 import (
@@ -15,7 +17,7 @@ func TestGetConfigData(t *testing.T) {
 	createMockedVault(vaultName, namespace, "foo.bar", "myJWT", vaultOperatorClient, kubeClient)
 
 	// Invoke the function under test
-	config, jwt, saName, err := factory.GetConfigData(vaultName, namespace)
+	config, jwt, saName, err := factory.GetConfigData(vaultName, namespace, true, false)
 
 	assert.Equal(t, "http://foo.bar", config.Address)
 	assert.Equal(t, "myJWT", jwt)
@@ -30,7 +32,7 @@ func TestGetConfigData_DefaultNamespacesUsed(t *testing.T) {
 	createMockedVault(vaultName, namespace, "foo.bar", "myJWT", vaultOperatorClient, kubeClient)
 
 	// Invoke the function under test
-	config, jwt, saName, err := factory.GetConfigData("", "")
+	config, jwt, saName, err := factory.GetConfigData("", "", true, false)
 
 	assert.Equal(t, "http://foo.bar", config.Address)
 	assert.Equal(t, "myJWT", jwt)
@@ -45,7 +47,7 @@ func TestGetConfigData_ErrorsWhenNoVaultsInNamespace(t *testing.T) {
 	createMockedVault(vaultName, namespace, "foo.bar", "myJWT", vaultOperatorClient, kubeClient)
 
 	// Invoke the function under test
-	config, jwt, saName, err := factory.GetConfigData("", "Nothing In This Namespace")
+	config, jwt, saName, err := factory.GetConfigData("", "Nothing In This Namespace", true, false)
 
 	assert.Nil(t, config)
 	assert.Empty(t, jwt)
@@ -65,7 +67,7 @@ func TestGetConfigData_ConfigUsedFromVaultSelector(t *testing.T) {
 	factory.Selector = PredefinedVaultSelector{vaultToReturn: vault2, url: "http://two.ah.ah.ah"}
 
 	// Invoke the function under test
-	config, jwt, saName, err := factory.GetConfigData("", namespace)
+	config, jwt, saName, err := factory.GetConfigData("", namespace, true, false)
 
 	assert.Equal(t, "http://two.ah.ah.ah", config.Address)
 	assert.Equal(t, "von-count", jwt)
@@ -79,7 +81,7 @@ type PredefinedVaultSelector struct {
 	url           string
 }
 
-func (p PredefinedVaultSelector) GetVault(name string, namespaces string) (*kubevault.Vault, error) {
+func (p PredefinedVaultSelector) GetVault(name string, namespaces string, incluster bool) (*kubevault.Vault, error) {
 	return &kubevault.Vault{
 		Name:                   p.vaultToReturn.Name,
 		Namespace:              p.vaultToReturn.Namespace,

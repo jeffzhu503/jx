@@ -1,9 +1,12 @@
+// +build unit
+
 package features_test
 
 import (
+	"testing"
+
 	"github.com/jenkins-x/jx/pkg/features"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestCheckTektonEnabledOss(t *testing.T) {
@@ -46,32 +49,6 @@ func TestCheckStaticJenkinsEnabledOss(t *testing.T) {
 }
 
 func TestCheckStaticJenkinsDisabledByDefaultWithToken(t *testing.T) {
-
-	//Given
-	features.SetFeatureFlagToken("test-token")
-	features.Init()
-
-	//When
-	err := features.CheckStaticJenkins()
-
-	//Then
-	assert.NotNil(t, err)
-}
-
-func TestCheckJenkinsFileRunnerEnabledOss(t *testing.T) {
-
-	//Given
-	features.SetFeatureFlagToken("oss")
-	features.Init()
-
-	//When
-	err := features.CheckStaticJenkins()
-
-	//Then
-	assert.Nil(t, err)
-}
-
-func TestCheckJenkinsFileRunnerDisabledByDefaultWithToken(t *testing.T) {
 
 	//Given
 	features.SetFeatureFlagToken("test-token")

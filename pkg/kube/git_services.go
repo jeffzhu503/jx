@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/jenkins-x/jx/pkg/auth"
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	"github.com/jenkins-x/jx/pkg/log"
 
 	"github.com/pkg/errors"
@@ -57,7 +59,7 @@ func EnsureGitServiceExistsForHost(jxClient versioned.Interface, devNs string, k
 	// not found so lets create a new GitService
 	gitSvc := &v1.GitService{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: ToValidNameWithDots(name),
+			Name: naming.ToValidNameWithDots(name),
 		},
 		Spec: v1.GitServiceSpec{
 			Name:    name,
@@ -88,10 +90,17 @@ func EnsureGitServiceExistsForHost(jxClient versioned.Interface, devNs string, k
 }
 
 // GetGitServiceKind returns the kind of the given host if one can be found or ""
-func GetGitServiceKind(jxClient versioned.Interface, kubeClient kubernetes.Interface, devNs string, gitServiceURL string) (string, error) {
+func GetGitServiceKind(jxClient versioned.Interface, kubeClient kubernetes.Interface, devNs string, clusterAuthConfig *auth.AuthConfig, gitServiceURL string) (string, error) {
 	answer := gits.SaasGitKind(gitServiceURL)
 	if answer != "" {
 		return answer, nil
+	}
+
+	if clusterAuthConfig != nil {
+		clusterServer := clusterAuthConfig.GetServer(gitServiceURL)
+		if clusterServer != nil {
+			return clusterServer.Kind, nil
+		}
 	}
 
 	answer, err := GetServiceKindFromSecrets(kubeClient, devNs, gitServiceURL)

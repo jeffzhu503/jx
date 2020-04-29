@@ -2,19 +2,18 @@ package prow
 
 import (
 	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"strings"
 
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/kube"
-
-	//"encoding/json"
-	"fmt"
-	"strings"
+	"github.com/jenkins-x/jx/pkg/util"
 
 	"github.com/pkg/errors"
 
 	"github.com/ghodss/yaml"
 	prowconfig "github.com/jenkins-x/jx/pkg/prow/config"
-	build "github.com/knative/build/pkg/apis/build/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -24,17 +23,7 @@ import (
 )
 
 const (
-	Hook = "hook"
-
-	KnativeBuildAgent = "knative-build"
-	TektonAgent       = "tekton"
-	KubernetesAgent   = "kubernetes"
-
-	applyTemplate = "environment-apply"
-	buildTemplate = "environment-build"
-
-	serviceAccountApply = "helm"
-	serviceAccountBuild = "knative-build-bot"
+	TektonAgent = "tekton"
 )
 
 const (
@@ -56,6 +45,8 @@ type Options struct {
 	Context              string
 	Agent                string
 	IgnoreBranch         bool
+	PluginsFileLocation  string
+	ConfigFileLocation   string
 }
 
 type ExternalPlugins struct {
@@ -66,10 +57,8 @@ func add(kubeClient kubernetes.Interface, repos []string, ns string, kind prowco
 	if len(repos) == 0 {
 		return fmt.Errorf("no repo defined")
 	}
-	agent := KnativeBuildAgent
-	if teamSettings.GetProwEngine() == v1.ProwEngineTypeTekton {
-		agent = TektonAgent
-	}
+	agent := TektonAgent
+
 	o := Options{
 		KubeClient:           kubeClient,
 		Repos:                repos,
@@ -156,17 +145,6 @@ func (o *Options) createPreSubmitEnvironment() config.Presubmit {
 	ps.SkipReport = false
 	ps.Context = prowconfig.PromotionBuild
 	ps.Agent = o.Agent
-
-	if o.Agent == KnativeBuildAgent {
-		spec := &build.BuildSpec{
-			ServiceAccountName: serviceAccountBuild,
-			Template: &build.TemplateInstantiationSpec{
-				Name: buildTemplate,
-			},
-		}
-
-		ps.BuildSpec = spec
-	}
 	ps.RerunCommand = "/test this"
 	ps.Trigger = "(?m)^/test( all| this),?(\\s+|$)"
 
@@ -177,41 +155,17 @@ func (o *Options) createPostSubmitEnvironment() config.Postsubmit {
 	ps := config.Postsubmit{}
 	ps.Name = "promotion"
 	ps.Agent = o.Agent
-	ps.Branches = []string{"master"}
+	ps.Branches = []string{"^master$"}
 
-	if o.Agent == KnativeBuildAgent {
-		spec := &build.BuildSpec{
-			ServiceAccountName: serviceAccountApply,
-			Template: &build.TemplateInstantiationSpec{
-				Name: applyTemplate,
-				Env: []corev1.EnvVar{
-					{Name: "DEPLOY_NAMESPACE", Value: o.EnvironmentNamespace},
-				},
-			},
-		}
-		ps.BuildSpec = spec
-	}
 	return ps
 }
 
 func (o *Options) createPostSubmitApplication() config.Postsubmit {
 	ps := config.Postsubmit{}
-	ps.Branches = []string{"master"}
+	ps.Branches = []string{"^master$"}
 	ps.Name = "release"
 	ps.Agent = o.Agent
 
-	templateName := fmt.Sprintf("jenkins-%s", o.DraftPack)
-
-	if o.Agent == KnativeBuildAgent {
-		spec := &build.BuildSpec{
-			ServiceAccountName: serviceAccountBuild,
-			Template: &build.TemplateInstantiationSpec{
-				Name: templateName,
-			},
-		}
-
-		ps.BuildSpec = spec
-	}
 	return ps
 }
 
@@ -226,18 +180,6 @@ func (o *Options) createPreSubmitApplication() config.Presubmit {
 	ps.SkipReport = false
 	ps.Agent = o.Agent
 
-	templateName := fmt.Sprintf("jenkins-%s", o.DraftPack)
-
-	if o.Agent == KnativeBuildAgent {
-		spec := &build.BuildSpec{
-			ServiceAccountName: serviceAccountApply,
-			Template: &build.TemplateInstantiationSpec{
-				Name: templateName,
-			},
-		}
-
-		ps.BuildSpec = spec
-	}
 	ps.RerunCommand = "/test this"
 	ps.Trigger = "(?m)^/test( all| this),?(\\s+|$)"
 
@@ -424,6 +366,84 @@ func (o *Options) GetProwConfig() (*config.Config, bool, error) {
 	return prowConfig, create, nil
 }
 
+// LoadProwConfigFromFile loads prow config from a file
+func (o *Options) LoadProwConfigFromFile() (*config.Config, error) {
+	exists, err := util.FileExists(o.ConfigFileLocation)
+	if err != nil {
+		return nil, errors.Wrap(err, "loading prow config from "+o.ConfigFileLocation)
+	}
+	if exists {
+		data, err := ioutil.ReadFile(o.ConfigFileLocation)
+		if err != nil {
+			return nil, errors.New("loading prow config from " + o.ConfigFileLocation)
+		}
+		prowConfig := &config.Config{}
+		if err == nil {
+			err = yaml.Unmarshal(data, &prowConfig)
+			if err != nil {
+				return nil, errors.Wrap(err, "unmarshaling prow config")
+			}
+			return prowConfig, nil
+		}
+
+	}
+	return nil, errors.New("loading prow config from " + o.ConfigFileLocation)
+}
+
+// LoadProwPluginsFromFile loads prow plugins from a file
+func (o *Options) LoadProwPluginsFromFile() (*plugins.Configuration, error) {
+	exists, err := util.FileExists(o.PluginsFileLocation)
+	if err != nil {
+		return nil, errors.Wrap(err, "loading prow plugins from "+o.PluginsFileLocation)
+	}
+	if exists {
+		data, err := ioutil.ReadFile(o.PluginsFileLocation)
+		if err != nil {
+			return nil, errors.New("loading prow plugins from " + o.PluginsFileLocation)
+		}
+		if err == nil {
+			pluginConfig := &plugins.Configuration{}
+			err = yaml.Unmarshal(data, &pluginConfig)
+			if err != nil {
+				return nil, errors.Wrap(err, "unmarshaling plugin config")
+			}
+			return pluginConfig, nil
+		}
+
+	}
+	return nil, errors.New("loading prow plugins from " + o.ConfigFileLocation)
+}
+
+// LoadProwConfig loads prow config from configmap
+func (o *Options) LoadProwConfig() (*config.Config, error) {
+	cm, err := o.KubeClient.CoreV1().ConfigMaps(o.NS).Get(ProwConfigMapName, metav1.GetOptions{})
+	prowConfig := &config.Config{}
+	if err == nil {
+		err = yaml.Unmarshal([]byte(cm.Data[ProwConfigFilename]), &prowConfig)
+		if err != nil {
+			return nil, errors.Wrap(err, "unmarshaling prow config")
+		}
+	} else {
+		return nil, errors.Wrap(err, "loading prow config configmap")
+	}
+	return prowConfig, nil
+}
+
+// LoadPluginConfig loads prow plugins from a configmap
+func (o *Options) LoadPluginConfig() (*plugins.Configuration, error) {
+	cm, err := o.KubeClient.CoreV1().ConfigMaps(o.NS).Get(ProwPluginsConfigMapName, metav1.GetOptions{})
+	pluginConfig := &plugins.Configuration{}
+	if err == nil {
+		err = yaml.Unmarshal([]byte(cm.Data[ProwPluginsFilename]), pluginConfig)
+		if err != nil {
+			return nil, errors.Wrap(err, "unmarshaling plugins")
+		}
+	} else {
+		return nil, errors.Wrap(err, "loading prow plugins configmap")
+	}
+	return pluginConfig, nil
+}
+
 func (o *Options) upsertPluginConfig(closure func(pluginConfig *plugins.Configuration,
 	externalPlugins *ExternalPlugins) error) error {
 	cm, err := o.KubeClient.CoreV1().ConfigMaps(o.NS).Get(ProwPluginsConfigMapName, metav1.GetOptions{})
@@ -581,7 +601,8 @@ func (o *Options) GetReleaseJobs() ([]string, error) {
 		for _, q := range p {
 			for _, b := range q.Branches {
 				repo = strings.Replace(repo, ":", "", -1)
-				jobName := fmt.Sprintf("%s/%s", repo, b)
+				branch := prowBranchConfigToGitBranchName(b)
+				jobName := fmt.Sprintf("%s/%s", repo, branch)
 				if o.IgnoreBranch {
 					jobName = repo
 				}
@@ -606,12 +627,16 @@ func (o *Options) GetPostSubmitJob(org, repo, branch string) (config.Postsubmit,
 	}
 
 	key := fmt.Sprintf("%s/%s", org, repo)
-	for _, p := range prowConfig.Postsubmits[key] {
+	postsubmits := prowConfig.Postsubmits[key]
 
-		for _, a := range p.Branches {
-			if a == branch {
-				return p, nil
-			}
+	err = config.SetPostsubmitRegexes(postsubmits)
+	if err != nil {
+		return p, errors.Wrap(err, "compiling prow postsubmit regexes")
+	}
+
+	for _, p := range postsubmits {
+		if p.Brancher.ShouldRun(branch) {
+			return p, nil
 		}
 	}
 	return p, fmt.Errorf("no prow config build spec found for %s/%s/%s", org, repo, branch)
@@ -629,4 +654,12 @@ func CreateProwJob(client kubernetes.Interface, ns string, j prowapi.ProwJob) (p
 		return retJob, fmt.Errorf("creating prowjob %v: %s", err, string(resp))
 	}
 	return retJob, err
+}
+
+// prowBranchConfigToGitBranchName converts a (prow) branch (regex)
+// into a git branch name
+func prowBranchConfigToGitBranchName(b string) string {
+	branch := strings.TrimLeft(b, "^")
+	branch = strings.TrimRight(branch, "$")
+	return branch
 }

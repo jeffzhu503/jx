@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"time"
 
 	gerrit "github.com/andygrunwald/go-gerrit"
 	"github.com/google/go-github/github"
 	"github.com/jenkins-x/jx/pkg/auth"
 	"github.com/jenkins-x/jx/pkg/log"
+	"github.com/pkg/errors"
 )
 
 type GerritProvider struct {
@@ -141,6 +143,11 @@ func (p *GerritProvider) CreatePullRequest(data *GitPullRequestArguments) (*GitP
 	return nil, nil
 }
 
+// UpdatePullRequest updates pull request with number using data
+func (p *GerritProvider) UpdatePullRequest(data *GitPullRequestArguments, number int) (*GitPullRequest, error) {
+	return nil, errors.Errorf("Not yet implemented for gerrit")
+}
+
 func (p *GerritProvider) UpdatePullRequestStatus(pr *GitPullRequest) error {
 	return nil
 }
@@ -261,7 +268,17 @@ func (p *GerritProvider) UpdateRelease(owner string, repo string, tag string, re
 	return nil
 }
 
+// UpdateReleaseStatus is not supported for this git provider
+func (p *GerritProvider) UpdateReleaseStatus(owner string, repo string, tag string, releaseInfo *GitRelease) error {
+	return nil
+}
+
 func (p *GerritProvider) ListReleases(org string, name string) ([]*GitRelease, error) {
+	return nil, nil
+}
+
+// GetRelease returns the release info for org, repo name and tag
+func (p *GerritProvider) GetRelease(org string, name string, tag string) (*GitRelease, error) {
 	return nil, nil
 }
 
@@ -325,4 +342,34 @@ func (p *GerritProvider) ListCommits(owner, repo string, opt *ListCommitsArgumen
 // AddLabelsToIssue adds labels to issues or pullrequests
 func (p *GerritProvider) AddLabelsToIssue(owner, repo string, number int, labels []string) error {
 	return fmt.Errorf("Getting content not supported on gerrit")
+}
+
+// GetLatestRelease fetches the latest release from the git provider for org and name
+func (p *GerritProvider) GetLatestRelease(org string, name string) (*GitRelease, error) {
+	return nil, nil
+}
+
+// UploadReleaseAsset will upload an asset to org/repo to a release with id, giving it a name, it will return the release asset from the git provider
+func (p *GerritProvider) UploadReleaseAsset(org string, repo string, id int64, name string, asset *os.File) (*GitReleaseAsset, error) {
+	return nil, nil
+}
+
+// GetBranch returns the branch information for an owner/repo, including the commit at the tip
+func (p *GerritProvider) GetBranch(owner string, repo string, branch string) (*GitBranch, error) {
+	return nil, nil
+}
+
+// GetProjects returns all the git projects in owner/repo
+func (p *GerritProvider) GetProjects(owner string, repo string) ([]GitProject, error) {
+	return nil, nil
+}
+
+//ConfigureFeatures sets specific features as enabled or disabled for owner/repo
+func (p *GerritProvider) ConfigureFeatures(owner string, repo string, issues *bool, projects *bool, wikis *bool) (*GitRepository, error) {
+	return nil, nil
+}
+
+// IsWikiEnabled returns true if a wiki is enabled for owner/repo
+func (p *GerritProvider) IsWikiEnabled(owner string, repo string) (bool, error) {
+	return false, nil
 }

@@ -1,13 +1,16 @@
+// +build unit
+
 package v1
 
 import (
 	"encoding/json"
 	"errors"
-	"github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
-	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net/http"
 	"testing"
+
+	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
+	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -72,7 +75,7 @@ func TestPatchUpdatePluginWithChange(t *testing.T) {
 		ns:     "default",
 	}
 
-	updated, err := plugins.PatchUpdate(testPlugin)
+	updated, err := plugins.PatchUpdate(clonedPlugin)
 	assert.NoError(t, err)
 	assert.NotEqual(t, testPlugin, updated)
 	assert.Equal(t, name, updated.Spec.Name)
@@ -116,8 +119,10 @@ func TestPatchUpdatePluginWithErrorInPatch(t *testing.T) {
 		client: fakeClient,
 		ns:     "default",
 	}
-
-	updated, err := plugins.PatchUpdate(testPlugin)
+	name := "susfu"
+	clonedPlugin := testPlugin.DeepCopy()
+	clonedPlugin.Spec.Name = name
+	updated, err := plugins.PatchUpdate(clonedPlugin)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), errorMessage)
 	assert.Nil(t, updated)

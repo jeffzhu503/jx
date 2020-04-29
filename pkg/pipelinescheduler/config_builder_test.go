@@ -1,3 +1,5 @@
+// +build unit
+
 package pipelinescheduler_test
 
 import (
@@ -51,10 +53,36 @@ func TestRepo(t *testing.T) {
 		})
 }
 
+func TestMultipleContexts(t *testing.T) {
+	wd, err := os.Getwd()
+	assert.NoError(t, err)
+	testhelpers.BuildAndValidateProwConfig(t, filepath.Join(wd, "test_data", "multiple_contexts"), "config.yaml", "",
+		[]testhelpers.SchedulerFile{
+			{
+				Filenames: []string{"repo.yaml"},
+				Org:       "acme",
+				Repo:      "dummy",
+			},
+		})
+}
+
 func TestWithParent(t *testing.T) {
 	wd, err := os.Getwd()
 	assert.NoError(t, err)
 	testhelpers.BuildAndValidateProwConfig(t, filepath.Join(wd, "test_data", "with_parent"), "config.yaml",
+		"plugins.yaml", []testhelpers.SchedulerFile{
+			{
+				Filenames: []string{"parent.yaml", "repo.yaml"},
+				Org:       "acme",
+				Repo:      "dummy",
+			},
+		})
+}
+
+func TestNoPostSubmitsWithParent(t *testing.T) {
+	wd, err := os.Getwd()
+	assert.NoError(t, err)
+	testhelpers.BuildAndValidateProwConfig(t, filepath.Join(wd, "test_data", "no_postsubmits_with_parent"), "config.yaml",
 		"plugins.yaml", []testhelpers.SchedulerFile{
 			{
 				Filenames: []string{"parent.yaml", "repo.yaml"},
@@ -81,6 +109,19 @@ func TestMergerWithParent(t *testing.T) {
 	wd, err := os.Getwd()
 	assert.NoError(t, err)
 	testhelpers.BuildAndValidateProwConfig(t, filepath.Join(wd, "test_data", "merger_with_parent"), "config.yaml",
+		"plugins.yaml", []testhelpers.SchedulerFile{
+			{
+				Filenames: []string{"parent.yaml", "repo.yaml"},
+				Org:       "acme",
+				Repo:      "dummy",
+			},
+		})
+}
+
+func TestMergerWithMergeMethod(t *testing.T) {
+	wd, err := os.Getwd()
+	assert.NoError(t, err)
+	testhelpers.BuildAndValidateProwConfig(t, filepath.Join(wd, "test_data", "merger_with_mergemethod"), "config.yaml",
 		"plugins.yaml", []testhelpers.SchedulerFile{
 			{
 				Filenames: []string{"parent.yaml", "repo.yaml"},

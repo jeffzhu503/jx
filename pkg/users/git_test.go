@@ -1,9 +1,12 @@
+// +build unit
+
 package users_test
 
 import (
 	"fmt"
-	"github.com/jenkins-x/jx/pkg/jx/cmd/cmd_test_helpers"
 	"testing"
+
+	"github.com/jenkins-x/jx/pkg/cmd/testhelpers"
 
 	"gopkg.in/src-d/go-git.v4/plumbing/object"
 
@@ -14,9 +17,9 @@ import (
 
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 
+	"github.com/jenkins-x/jx/pkg/cmd/opts"
 	"github.com/jenkins-x/jx/pkg/gits"
 	helm_test "github.com/jenkins-x/jx/pkg/helm/mocks"
-	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	resources_test "github.com/jenkins-x/jx/pkg/kube/resources/mocks"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -26,9 +29,11 @@ func TestFindUserByLabel(t *testing.T) {
 	t.Parallel()
 	resolver, _, err := prepare(t)
 	assert.NoError(t, err)
+
 	gituserIDUUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID := gituserIDUUID.String()
+
 	// Create the user
 	labeleduserID, err := createUniqueDummyUser(resolver, true, gituserID)
 	defer func() {
@@ -43,6 +48,7 @@ func TestFindUserByLabel(t *testing.T) {
 		assert.NoError(t, err)
 	}()
 	assert.NoError(t, err)
+
 	gitUser := gits.GitUser{
 		Login: gituserID,
 	}
@@ -56,9 +62,11 @@ func TestFindUserBySignature(t *testing.T) {
 	t.Parallel()
 	resolver, _, err := prepare(t)
 	assert.NoError(t, err)
+
 	gituserIDUUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID := gituserIDUUID.String()
+
 	// Create the user
 	userID, err := createUniqueDummyUser(resolver, true, gituserID)
 	defer func() {
@@ -66,7 +74,7 @@ func TestFindUserBySignature(t *testing.T) {
 		assert.NoError(t, err)
 	}()
 	assert.NoError(t, err)
-	assert.NoError(t, err)
+
 	signature := object.Signature{
 		Email: fmt.Sprintf("%s@test.com", userID),
 		Name:  userID,
@@ -81,12 +89,15 @@ func TestFindUserByAccountReference(t *testing.T) {
 	t.Parallel()
 	resolver, _, err := prepare(t)
 	assert.NoError(t, err)
+
 	gituserID1UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID1 := gituserID1UUID.String()
+
 	gituserID2UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID2 := gituserID2UUID.String()
+
 	// Create the user
 	userID1, err := createUniqueDummyUser(resolver, false, gituserID1)
 	defer func() {
@@ -101,6 +112,7 @@ func TestFindUserByAccountReference(t *testing.T) {
 		assert.NoError(t, err)
 	}()
 	assert.NoError(t, err)
+
 	gitUser := gits.GitUser{
 		Login: gituserID1,
 	}
@@ -118,18 +130,22 @@ func TestFindUserByFromGitProvider(t *testing.T) {
 	t.Parallel()
 	resolver, fakeProvider, err := prepare(t)
 	assert.NoError(t, err)
+
 	gituserID1UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID1 := gituserID1UUID.String()
+
 	gituserID2UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID2 := gituserID2UUID.String()
+
 	nameUUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	name := nameUUID.String()
 	emailUUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	email := emailUUID.String()
+
 	// Create the user
 	gitUser1 := &gits.GitUser{
 		Name:  name,
@@ -167,12 +183,15 @@ func TestFindUserByFromGitProviderWithNoEmail(t *testing.T) {
 	t.Parallel()
 	resolver, fakeProvider, err := prepare(t)
 	assert.NoError(t, err)
+
 	gituserID1UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID1 := gituserID1UUID.String()
+
 	gituserID2UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	gituserID2 := gituserID2UUID.String()
+
 	nameUUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	name := nameUUID.String()
@@ -207,9 +226,11 @@ func TestFindUserWithDifferentEmailButSameGitLogin(t *testing.T) {
 	t.Parallel()
 	resolver, fakeProvider, err := prepare(t)
 	assert.NoError(t, err)
+
 	userID1UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	userID := userID1UUID.String()
+
 	nameUUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	name := nameUUID.String()
@@ -240,13 +261,13 @@ func TestFindUserWithDifferentEmailButSameGitLogin(t *testing.T) {
 	for _, u := range users.Items {
 		userIds = append(userIds, u.Name)
 	}
-	t.Logf("Found two users: %v", userIds)
 }
 
 func TestFindUserWithNoEmailButSameGitLogin(t *testing.T) {
 	t.Parallel()
 	resolver, fakeProvider, err := prepare(t)
 	assert.NoError(t, err)
+
 	userID1UUID, err := uuid.NewV4()
 	assert.NoError(t, err)
 	userID := userID1UUID.String()
@@ -278,15 +299,50 @@ func TestFindUserWithNoEmailButSameGitLogin(t *testing.T) {
 	assert.Len(t, users.Items, 2)
 }
 
+func TestFindUserByUpperCaseGitUserName(t *testing.T) {
+	t.Parallel()
+	resolver, _, err := prepare(t)
+	assert.NoError(t, err)
+	assert.NoError(t, err)
+
+	gitUser := gits.GitUser{
+		Login: "foo",
+		Name:  "John",
+		Email: "john@acme.com",
+	}
+
+	user, err := resolver.Resolve(&gitUser)
+	assert.NoError(t, err)
+	assert.NotNil(t, user)
+	assert.Equal(t, user.Spec.Login, "foo")
+	assert.Contains(t, user.Labels, "jenkins.io/git-fakegit-userid")
+	assert.Equal(t, user.Spec.Name, "John")
+	assert.Equal(t, user.Spec.Email, "john@acme.com")
+
+	gitUser = gits.GitUser{
+		Login: "Foo",
+		Name:  "Jane",
+		Email: "jane@acme.com",
+	}
+
+	user, err = resolver.Resolve(&gitUser)
+	assert.NoError(t, err)
+	assert.NotNil(t, user)
+	assert.Contains(t, user.Labels, "jenkins.io/git-fakegit-userid")
+	assert.Equal(t, user.Spec.Login, "Foo")
+	assert.Equal(t, user.Spec.Name, "Jane")
+	assert.Equal(t, user.Spec.Email, "jane@acme.com")
+}
+
 func prepare(t *testing.T) (*users.GitUserResolver, *gits.FakeProvider, error) {
 	testOrgName := "myorg"
 	testRepoName := "my-app"
-	fakeRepo := gits.NewFakeRepository(testOrgName, testRepoName)
+	fakeRepo, _ := gits.NewFakeRepository(testOrgName, testRepoName, nil, nil)
 	fakeProvider := gits.NewFakeProvider(fakeRepo)
 	fakeProvider.Type = gits.Fake
 
 	o := opts.CommonOptions{}
-	cmd_test_helpers.ConfigureTestOptionsWithResources(&o,
+	testhelpers.ConfigureTestOptionsWithResources(&o,
 		[]runtime.Object{},
 		[]runtime.Object{},
 		&gits.GitFake{},

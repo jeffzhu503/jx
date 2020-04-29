@@ -2,13 +2,15 @@ package pipelinescheduler
 
 import (
 	"fmt"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	jenkinsv1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
-
-	"k8s.io/test-infra/prow/plugins"
-
 	"github.com/pkg/errors"
+	"github.com/rollout/rox-go/core/utils"
 	"k8s.io/test-infra/prow/config"
 	"k8s.io/test-infra/prow/github"
+	"k8s.io/test-infra/prow/plugins"
 )
 
 // BuildProwConfig takes a list of schedulers and creates a Prow Config from it
@@ -24,7 +26,7 @@ func BuildProwConfig(schedulers []*SchedulerLeaf) (*config.Config, *plugins.Conf
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "building JobConfig for %v", scheduler)
 		}
-		err = buildProwConfig(&configResult.ProwConfig, scheduler.SchedulerSpec)
+		err = buildProwConfig(&configResult.ProwConfig, scheduler.SchedulerSpec, scheduler.Org, scheduler.Repo)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "building ProwConfig for %v", scheduler)
 		}
@@ -44,12 +46,16 @@ func buildPlugins(answer *plugins.Configuration, scheduler *jenkinsv1.SchedulerS
 		}
 		answer.Plugins[orgSlashRepo(orgName, repoName)] = scheduler.Plugins.Items
 	}
+	if answer.ExternalPlugins == nil {
+		answer.ExternalPlugins = make(map[string][]plugins.ExternalPlugin)
+	}
+
 	if scheduler.ExternalPlugins != nil {
-		if answer.ExternalPlugins == nil {
-			answer.ExternalPlugins = make(map[string][]plugins.ExternalPlugin)
-		}
-		res := make([]plugins.ExternalPlugin, 0)
+		var res []plugins.ExternalPlugin
 		for _, src := range scheduler.ExternalPlugins.Items {
+			if res == nil {
+				res = make([]plugins.ExternalPlugin, 0)
+			}
 			externalPlugin := plugins.ExternalPlugin{}
 			err := buildExternalPlugin(&externalPlugin, src)
 			if err != nil {
@@ -59,16 +65,34 @@ func buildPlugins(answer *plugins.Configuration, scheduler *jenkinsv1.SchedulerS
 		}
 		answer.ExternalPlugins[orgSlashRepo(orgName, repoName)] = res
 	}
+	if answer.Approve == nil {
+		answer.Approve = make([]plugins.Approve, 0)
+	}
 	if scheduler.Approve != nil {
-		if answer.Approve == nil {
-			answer.Approve = make([]plugins.Approve, 0)
-		}
 		approve := plugins.Approve{}
 		err := buildApprove(&approve, scheduler.Approve, orgName, repoName)
 		if err != nil {
 			return errors.Wrapf(err, "building Approve for %v", scheduler.Approve)
 		}
 		answer.Approve = append(answer.Approve, approve)
+	}
+	if scheduler.Welcome != nil {
+		if answer.Welcome == nil {
+			answer.Welcome = make([]plugins.Welcome, 0)
+		}
+		for _, welcome := range scheduler.Welcome {
+			welcomeExists := false
+			// TODO support Welcome.Repos
+			for _, existingWelcome := range answer.Welcome {
+				if *welcome.MessageTemplate == existingWelcome.MessageTemplate {
+					welcomeExists = true
+					break
+				}
+			}
+			if !welcomeExists {
+				answer.Welcome = append(answer.Welcome, plugins.Welcome{MessageTemplate: *welcome.MessageTemplate})
+			}
+		}
 	}
 	if scheduler.ConfigUpdater != nil {
 		if answer.ConfigUpdater.Maps == nil {
@@ -90,10 +114,10 @@ func buildPlugins(answer *plugins.Configuration, scheduler *jenkinsv1.SchedulerS
 			answer.ConfigUpdater.PluginFile = scheduler.ConfigUpdater.PluginFile
 		}
 	}
+	if answer.Lgtm == nil {
+		answer.Lgtm = make([]plugins.Lgtm, 0)
+	}
 	if scheduler.LGTM != nil {
-		if answer.Lgtm == nil {
-			answer.Lgtm = make([]plugins.Lgtm, 0)
-		}
 		lgtm := plugins.Lgtm{}
 		err := buildLgtm(&lgtm, scheduler.LGTM, orgName, repoName)
 		if err != nil {
@@ -101,10 +125,10 @@ func buildPlugins(answer *plugins.Configuration, scheduler *jenkinsv1.SchedulerS
 		}
 		answer.Lgtm = append(answer.Lgtm, lgtm)
 	}
+	if answer.Triggers == nil {
+		answer.Triggers = make([]plugins.Trigger, 0)
+	}
 	if scheduler.Trigger != nil {
-		if answer.Triggers == nil {
-			answer.Triggers = make([]plugins.Trigger, 0)
-		}
 		trigger := plugins.Trigger{}
 		err := buildTrigger(&trigger, scheduler.Trigger, orgName, repoName)
 		if err != nil {
@@ -180,7 +204,7 @@ func buildExternalPlugin(answer *plugins.ExternalPlugin, plugin *jenkinsv1.Exter
 	return nil
 }
 
-func buildProwConfig(prowConfig *config.ProwConfig, scheduler *jenkinsv1.SchedulerSpec) error {
+func buildProwConfig(prowConfig *config.ProwConfig, scheduler *jenkinsv1.SchedulerSpec, org string, repo string) error {
 	if scheduler.Policy != nil {
 		err := buildGlobalBranchProtection(&prowConfig.BranchProtection, scheduler.Policy)
 		if err != nil {
@@ -188,7 +212,7 @@ func buildProwConfig(prowConfig *config.ProwConfig, scheduler *jenkinsv1.Schedul
 		}
 	}
 	if scheduler.Merger != nil {
-		err := buildMerger(&prowConfig.Tide, scheduler.Merger)
+		err := buildMerger(&prowConfig.Tide, scheduler.Merger, org, repo)
 		if err != nil {
 			return errors.Wrapf(err, "building Merger for %v", scheduler)
 		}
@@ -236,7 +260,21 @@ func buildPolicy(answer *config.Policy, policy *jenkinsv1.ProtectionPolicy) erro
 func buildBranchProtectionContextPolicy(answer *config.ContextPolicy,
 	policy *jenkinsv1.BranchProtectionContextPolicy) error {
 	if policy.Contexts != nil {
-		answer.Contexts = policy.Contexts.Items
+		if answer.Contexts == nil {
+			answer.Contexts = make([]string, 0)
+		}
+		for _, i := range policy.Contexts.Items {
+			found := false
+			for _, existing := range answer.Contexts {
+				if existing == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				answer.Contexts = append(answer.Contexts, i)
+			}
+		}
 	}
 	if policy.Strict != nil {
 		answer.Strict = policy.Strict
@@ -268,10 +306,20 @@ func buildRequiredPullRequestReviews(answer *config.ReviewPolicy, policy *jenkin
 
 func buildRestrictions(answer *config.Restrictions, restrictions *jenkinsv1.Restrictions) error {
 	if restrictions.Users != nil {
-		answer.Users = restrictions.Users.Items
+		if answer.Users == nil {
+			answer.Users = make([]string, 0)
+		}
+		for _, i := range restrictions.Users.Items {
+			answer.Users = append(answer.Users, i)
+		}
 	}
 	if restrictions.Teams != nil {
-		answer.Teams = restrictions.Teams.Items
+		if answer.Teams == nil {
+			answer.Teams = make([]string, 0)
+		}
+		for _, i := range restrictions.Teams.Items {
+			answer.Teams = append(answer.Teams, i)
+		}
 	}
 	return nil
 }
@@ -289,6 +337,15 @@ func buildJobConfig(jobConfig *config.JobConfig, prowConfig *config.ProwConfig,
 		if err != nil {
 			return errors.Wrapf(err, "building Presubmits from %v", scheduler)
 		}
+	}
+	if scheduler.Periodics != nil && len(scheduler.Periodics.Items) > 0 {
+		err := buildPeriodics(jobConfig, scheduler.Periodics)
+		if err != nil {
+			return errors.Wrapf(err, "building periodics for %v", scheduler)
+		}
+	}
+	if scheduler.Attachments != nil && len(scheduler.Attachments) > 0 {
+		buildPlank(prowConfig, scheduler.Attachments)
 	}
 	return nil
 }
@@ -320,7 +377,7 @@ func buildPostsubmits(jobConfig *config.JobConfig, items []*jenkinsv1.Postsubmit
 			}
 		}
 		if postsubmit.Report != nil {
-			c.Report = !*postsubmit.Report
+			c.Report = *postsubmit.Report
 		}
 		if postsubmit.Context != nil {
 			c.Context = *postsubmit.Context
@@ -377,18 +434,20 @@ func buildPresubmits(jobConfig *config.JobConfig, prowConfig *config.ProwConfig,
 		}
 		jobConfig.Presubmits[orgSlashRepo] = append(jobConfig.Presubmits[orgSlashRepo], c)
 
-		if presubmit.Query != nil {
-			err := buildQuery(&prowConfig.Tide, presubmit.Query, orgName, repoName)
+		if presubmit.Queries != nil && len(presubmit.Queries) > 0 {
+			err := buildQuery(&prowConfig.Tide, presubmit.Queries, orgName, repoName)
 			if err != nil {
-				return errors.Wrapf(err, "building Query from %v", presubmit.Query)
+				return errors.Wrapf(err, "building Query from %v", presubmit.Queries)
 			}
 		}
 		if presubmit.MergeType != nil {
 			mt := github.PullRequestMergeType(*presubmit.MergeType)
-			if prowConfig.Tide.MergeType == nil {
+			if prowConfig.Tide.MergeType == nil && mt != "" {
 				prowConfig.Tide.MergeType = make(map[string]github.PullRequestMergeType)
 			}
-			prowConfig.Tide.MergeType[orgSlashRepo] = mt
+			if mt != "" {
+				prowConfig.Tide.MergeType[orgSlashRepo] = mt
+			}
 		}
 		if presubmit.Policy != nil {
 			if presubmit.Policy.ProtectionPolicy != nil {
@@ -407,9 +466,7 @@ func buildPresubmits(jobConfig *config.JobConfig, prowConfig *config.ProwConfig,
 
 		}
 		if presubmit.ContextPolicy != nil {
-			policy := config.TideRepoContextPolicy{
-				Branches: make(map[string]config.TideContextPolicy),
-			}
+			policy := config.TideRepoContextPolicy{}
 			err := buildRepoContextPolicy(&policy, presubmit.ContextPolicy)
 			if err != nil {
 				return errors.Wrapf(err, "building RepoContextPolicy from %v", presubmit)
@@ -445,11 +502,6 @@ func buildGlobalBranchProtection(answer *config.BranchProtection,
 
 func buildBranchProtection(answer *config.BranchProtection,
 	protectionPolicy *jenkinsv1.ProtectionPolicy, orgName string, repoName string, branchName string) error {
-	policy := config.Policy{}
-	err := buildPolicy(&policy, protectionPolicy)
-	if err != nil {
-		return errors.Wrapf(err, "building ProtectionPolicy from %v", protectionPolicy)
-	}
 	if orgName != "" {
 		if answer.Orgs == nil {
 			answer.Orgs = make(map[string]config.Org)
@@ -467,23 +519,36 @@ func buildBranchProtection(answer *config.BranchProtection,
 			}
 			repo := answer.Orgs[orgName].Repos[repoName]
 			if branchName != "" {
-
 				if repo.Branches == nil {
 					repo.Branches = make(map[string]config.Branch)
 				}
-				repo.Branches[branchName] = config.Branch{
-					Policy: policy,
+				if _, ok := repo.Branches[branchName]; !ok {
+					repo.Branches[branchName] = config.Branch{}
+				}
+				branch := repo.Branches[branchName]
+				err := buildPolicy(&branch.Policy, protectionPolicy)
+				if err != nil {
+					return errors.Wrapf(err, "building ProtectionPolicy from %v", protectionPolicy)
 				}
 			} else {
-				repo.Policy = policy
+				err := buildPolicy(&repo.Policy, protectionPolicy)
+				if err != nil {
+					return errors.Wrapf(err, "building ProtectionPolicy from %v", protectionPolicy)
+				}
 			}
 			org.Repos[repoName] = repo
 		} else {
-			org.Policy = policy
+			err := buildPolicy(&org.Policy, protectionPolicy)
+			if err != nil {
+				return errors.Wrapf(err, "building ProtectionPolicy from %v", protectionPolicy)
+			}
 		}
 		answer.Orgs[orgName] = org
 	} else {
-		answer.Policy = policy
+		err := buildPolicy(&answer.Policy, protectionPolicy)
+		if err != nil {
+			return errors.Wrapf(err, "building ProtectionPolicy from %v", protectionPolicy)
+		}
 	}
 	return nil
 }
@@ -514,6 +579,9 @@ func buildJobBase(answer *config.JobBase, jobBase *jenkinsv1.JobBase) error {
 	if jobBase.Name != nil {
 		answer.Name = *jobBase.Name
 	}
+	if jobBase.Spec != nil {
+		answer.Spec = jobBase.Spec
+	}
 	return nil
 }
 
@@ -535,7 +603,52 @@ func buildRegexChangeMatacher(answer *config.RegexpChangeMatcher,
 	return nil
 }
 
-func buildMerger(answer *config.Tide, merger *jenkinsv1.Merger) error {
+func buildPlank(answer *config.ProwConfig, attachments []*jenkinsv1.Attachment) {
+	for attachmentIndex := range attachments {
+		attachment := attachments[attachmentIndex]
+		if attachment.Name == "reportTemplate" {
+			answer.Plank.ReportTemplateString = attachment.URLs[0]
+		}
+		if attachment.Name == "jobURLPrefix" {
+			answer.Plank.JobURLPrefix = attachment.URLs[0]
+		}
+		if attachment.Name == "jobURLTemplate" {
+			answer.Plank.JobURLTemplateString = attachment.URLs[0]
+		}
+	}
+}
+
+func buildPeriodics(answer *config.JobConfig, periodics *jenkinsv1.Periodics) error {
+	if answer.Periodics == nil {
+		answer.Periodics = make([]config.Periodic, 0)
+	}
+	for _, schedulerPeriodic := range periodics.Items {
+		periodicAlreadyExists := false
+		for existingPeriodicIndex := range answer.Periodics {
+			if answer.Periodics[existingPeriodicIndex].Name == *schedulerPeriodic.Name {
+				periodicAlreadyExists = true
+				break
+			}
+		}
+		if !periodicAlreadyExists {
+			periodic := config.Periodic{
+				Cron:     *schedulerPeriodic.Cron,
+				Interval: *schedulerPeriodic.Interval,
+			}
+			if schedulerPeriodic.Tags.Items != nil && len(schedulerPeriodic.Tags.Items) > 0 {
+				periodic.Tags = schedulerPeriodic.Tags.Items
+			}
+			err := buildJobBase(&periodic.JobBase, schedulerPeriodic.JobBase)
+			if err != nil {
+				return errors.Wrapf(err, "building periodic for %v", periodic)
+			}
+			answer.Periodics = append(answer.Periodics, periodic)
+		}
+	}
+	return nil
+}
+
+func buildMerger(answer *config.Tide, merger *jenkinsv1.Merger, org string, repo string) error {
 	if merger.SyncPeriod != nil {
 		answer.SyncPeriod = *merger.SyncPeriod
 	}
@@ -557,6 +670,12 @@ func buildMerger(answer *config.Tide, merger *jenkinsv1.Merger) error {
 	if merger.MaxGoroutines != nil {
 		answer.MaxGoroutines = *merger.MaxGoroutines
 	}
+	if merger.MergeType != nil {
+		if answer.MergeType == nil {
+			answer.MergeType = make(map[string]github.PullRequestMergeType)
+		}
+		answer.MergeType[fmt.Sprintf("%s/%s", org, repo)] = github.PullRequestMergeType(*merger.MergeType)
+	}
 	if merger.ContextPolicy != nil {
 		err := buildContextPolicy(&answer.ContextOptions.TideContextPolicy, merger.ContextPolicy)
 		if err != nil {
@@ -574,6 +693,9 @@ func buildRepoContextPolicy(answer *config.TideRepoContextPolicy,
 	}
 	if repoContextPolicy.Branches != nil {
 		for branch, policy := range repoContextPolicy.Branches.Items {
+			if answer.Branches == nil {
+				answer.Branches = make(map[string]config.TideContextPolicy)
+			}
 			tidePolicy := config.TideContextPolicy{}
 			err := buildContextPolicy(&tidePolicy, policy)
 			if err != nil {
@@ -587,49 +709,67 @@ func buildRepoContextPolicy(answer *config.TideRepoContextPolicy,
 
 func buildContextPolicy(answer *config.TideContextPolicy,
 	contextOptions *jenkinsv1.ContextPolicy) error {
-	if contextOptions.SkipUnknownContexts != nil {
-		answer.SkipUnknownContexts = contextOptions.SkipUnknownContexts
-	}
-	if contextOptions.FromBranchProtection != nil {
-		answer.FromBranchProtection = contextOptions.FromBranchProtection
-	}
-	if contextOptions.RequiredIfPresentContexts != nil {
-		answer.RequiredIfPresentContexts = contextOptions.RequiredIfPresentContexts.Items
-	}
-	if contextOptions.RequiredContexts != nil {
-		answer.RequiredContexts = contextOptions.RequiredContexts.Items
-	}
-	if contextOptions.OptionalContexts != nil {
-		answer.OptionalContexts = contextOptions.OptionalContexts.Items
+	if contextOptions != nil {
+		if contextOptions.SkipUnknownContexts != nil {
+			answer.SkipUnknownContexts = contextOptions.SkipUnknownContexts
+		}
+		if contextOptions.FromBranchProtection != nil {
+			answer.FromBranchProtection = contextOptions.FromBranchProtection
+		}
+		if contextOptions.RequiredIfPresentContexts != nil {
+			answer.RequiredIfPresentContexts = contextOptions.RequiredIfPresentContexts.Items
+		}
+		if contextOptions.RequiredContexts != nil {
+			answer.RequiredContexts = contextOptions.RequiredContexts.Items
+		}
+		if contextOptions.OptionalContexts != nil {
+			answer.OptionalContexts = contextOptions.OptionalContexts.Items
+		}
 	}
 	return nil
 }
 
-func buildQuery(answer *config.Tide, query *jenkinsv1.Query, org string, repo string) error {
+func buildQuery(answer *config.Tide, queries []*jenkinsv1.Query, org string, repo string) error {
 	if answer.Queries == nil {
 		answer.Queries = config.TideQueries{}
 	}
-	tideQuery := config.TideQuery{
+	tideQuery := &config.TideQuery{
 		Repos: []string{orgSlashRepo(org, repo)},
 	}
-	if query.ExcludedBranches != nil {
-		tideQuery.ExcludedBranches = query.ExcludedBranches.Items
+	for _, query := range queries {
+		if query.ExcludedBranches != nil {
+			tideQuery.ExcludedBranches = query.ExcludedBranches.Items
+		}
+		if query.IncludedBranches != nil {
+			tideQuery.IncludedBranches = query.IncludedBranches.Items
+		}
+		if query.Labels != nil {
+			tideQuery.Labels = query.Labels.Items
+		}
+		if query.MissingLabels != nil {
+			tideQuery.MissingLabels = query.MissingLabels.Items
+		}
+		if query.Milestone != nil {
+			tideQuery.Milestone = *query.Milestone
+		}
+		if query.ReviewApprovedRequired != nil {
+			tideQuery.ReviewApprovedRequired = *query.ReviewApprovedRequired
+		}
+		mergedWithExisting := false
+		for index := range answer.Queries {
+			existingQuery := &answer.Queries[index]
+			if cmp.Equal(existingQuery, tideQuery, cmpopts.IgnoreFields(config.TideQuery{}, "Repos")) {
+				mergedWithExisting = true
+				for _, newRepo := range tideQuery.Repos {
+					if !utils.ContainsString(existingQuery.Repos, newRepo) {
+						existingQuery.Repos = append(existingQuery.Repos, newRepo)
+					}
+				}
+			}
+		}
+		if !mergedWithExisting {
+			answer.Queries = append(answer.Queries, *tideQuery)
+		}
 	}
-	if query.IncludedBranches != nil {
-		tideQuery.IncludedBranches = query.IncludedBranches.Items
-	}
-	if query.Labels != nil {
-		tideQuery.Labels = query.Labels.Items
-	}
-	if query.MissingLabels != nil {
-		tideQuery.MissingLabels = query.MissingLabels.Items
-	}
-	if query.Milestone != nil {
-		tideQuery.Milestone = *query.Milestone
-	}
-	if query.ReviewApprovedRequired != nil {
-		tideQuery.ReviewApprovedRequired = *query.ReviewApprovedRequired
-	}
-	answer.Queries = append(answer.Queries, tideQuery)
 	return nil
 }

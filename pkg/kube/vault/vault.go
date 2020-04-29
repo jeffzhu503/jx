@@ -1,26 +1,34 @@
 package vault
 
 import (
+	"bytes"
 	"fmt"
+
+	"github.com/jenkins-x/jx/pkg/util/json"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/banzaicloud/bank-vaults/operator/pkg/apis/vault/v1alpha1"
 	"github.com/banzaicloud/bank-vaults/operator/pkg/client/clientset/versioned"
 	vaultapi "github.com/hashicorp/vault/api"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/kube/cluster"
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	"github.com/jenkins-x/jx/pkg/kube/serviceaccount"
 	"github.com/jenkins-x/jx/pkg/kube/services"
+	"github.com/jenkins-x/jx/pkg/log"
+	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/jenkins-x/jx/pkg/vault"
 	"github.com/pkg/errors"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
 
 const (
-	BankVaultsOperatorImage = "banzaicloud/vault-operator"
-	BankVaultsImage         = "banzaicloud/bank-vaults"
-	VaultImage              = "vault"
+	BankVaultsImage    = "banzaicloud/bank-vaults"
+	VaultOperatorImage = "banzaicloud/vault-operator"
+	VaultImage         = "vault"
 
 	gcpServiceAccountEnv  = "GOOGLE_APPLICATION_CREDENTIALS"
 	gcpServiceAccountPath = "/etc/gcp/service-account.json"
@@ -34,8 +42,9 @@ const (
 
 	vaultRoleName = "vault-auth"
 
-	vaultSecretEngines = "secrets"
-	defaultNumVaults   = 1
+	vaultSecretEngines      = "secrets"
+	defaultNumVaults        = 1
+	defaultInternalVaultURL = "http://%s:" + vault.DefaultVaultPort
 )
 
 // Vault stores some details of a Vault resource
@@ -64,10 +73,12 @@ type GCSConfig struct {
 // AWSConfig keeps the vault configuration for AWS
 type AWSConfig struct {
 	v1alpha1.AWSUnsealConfig
-	DynamoDBTable   string
-	DynamoDBRegion  string
-	AccessKeyID     string
-	SecretAccessKey string
+	AutoCreate          bool
+	DynamoDBTable       string
+	DynamoDBRegion      string
+	AccessKeyID         string
+	SecretAccessKey     string
+	ProvidedIAMUsername string
 }
 
 // DynamoDBConfig AWS DynamoDB config for Vault backend
@@ -158,6 +169,14 @@ type AWSSealConig struct {
 	Endpoint  string `json:"endpoint,omitempty"`
 }
 
+// CloudProviderConfig is a wrapper around the cloud provider specific elements of the Vault CRD configuration
+type CloudProviderConfig struct {
+	Storage           map[string]interface{}
+	Seal              map[string]interface{}
+	UnsealConfig      v1alpha1.UnsealConfig
+	CredentialsConfig v1alpha1.CredentialsConfig
+}
+
 // SystemVaultName returns the name of the system vault based on the cluster name
 func SystemVaultName(kuber kube.Kuber) (string, error) {
 	clusterName, err := cluster.ShortName(kuber)
@@ -169,29 +188,25 @@ func SystemVaultName(kuber kube.Kuber) (string, error) {
 
 // SystemVaultNameForCluster returns the system vault name from a given cluster name
 func SystemVaultNameForCluster(clusterName string) string {
-	shortClusterName := kube.ToValidNameTruncated(clusterName, 16)
+	shortClusterName := naming.ToValidNameTruncated(clusterName, 16)
 	fullName := fmt.Sprintf("%s-%s", vault.SystemVaultNamePrefix, shortClusterName)
-	return kube.ToValidNameTruncated(fullName, 22)
+	return naming.ToValidNameTruncated(fullName, 22)
 }
 
-// CreateGKEVault creates a new vault backed by GCP KMS and storage
-func CreateGKEVault(kubeClient kubernetes.Interface, vaultOperatorClient versioned.Interface, name string, ns string,
-	images map[string]string, gcpServiceAccountSecretName string, gcpConfig *GCPConfig, authServiceAccount string,
-	authServiceAccountNamespace string, secretsPathPrefix string) error {
-
-	vault, err := initializeVault(kubeClient, name, ns, images,
-		authServiceAccount, authServiceAccountNamespace, secretsPathPrefix)
-	if err != nil {
-		return err
-	}
-
-	vault.Spec.Config["storage"] = Storage{
+// PrepareGKEVaultCRD creates a new vault backed by GCP KMS and storage
+func PrepareGKEVaultCRD(gcpServiceAccountSecretName string, gcpConfig *GCPConfig) (CloudProviderConfig, error) {
+	storage := Storage{
 		GCS: &GCSConfig{
 			Bucket:    gcpConfig.GcsBucket,
 			HaEnabled: "true",
 		},
 	}
-	vault.Spec.Config["seal"] = Seal{
+	storageConfig, err := util.ToObjectMap(storage)
+	if err != nil {
+		return CloudProviderConfig{}, errors.Wrap(err, "error creating storage config")
+	}
+
+	seal := Seal{
 		GcpCkms: &GCPSealConfig{
 			Credentials: gcpServiceAccountPath,
 			Project:     gcpConfig.ProjectId,
@@ -200,7 +215,12 @@ func CreateGKEVault(kubeClient kubernetes.Interface, vaultOperatorClient version
 			CryptoKey:   gcpConfig.KmsKey,
 		},
 	}
-	vault.Spec.UnsealConfig = v1alpha1.UnsealConfig{
+	sealConfig, err := util.ToObjectMap(seal)
+	if err != nil {
+		return CloudProviderConfig{}, errors.Wrap(err, "error creating seal config")
+	}
+
+	unsealConfig := v1alpha1.UnsealConfig{
 		Google: &v1alpha1.GoogleUnsealConfig{
 			KMSKeyRing:    gcpConfig.KmsKeyring,
 			KMSCryptoKey:  gcpConfig.KmsKey,
@@ -209,27 +229,17 @@ func CreateGKEVault(kubeClient kubernetes.Interface, vaultOperatorClient version
 			StorageBucket: gcpConfig.GcsBucket,
 		},
 	}
-	vault.Spec.CredentialsConfig = v1alpha1.CredentialsConfig{
+	credentialsConfig := v1alpha1.CredentialsConfig{
 		Env:        gcpServiceAccountEnv,
 		Path:       gcpServiceAccountPath,
 		SecretName: gcpServiceAccountSecretName,
 	}
-
-	_, err = vaultOperatorClient.VaultV1alpha1().Vaults(ns).Create(vault)
-	return err
+	return CloudProviderConfig{storageConfig, sealConfig, unsealConfig, credentialsConfig}, nil
 }
 
-// CreateAWSVault creates a new vault backed by AWS KMS and DynamoDB storage
-func CreateAWSVault(kubeClient kubernetes.Interface, vaultOperatorClient versioned.Interface, name string, ns string,
-	images map[string]string, awsServiceAccountSecretName string, awsConfig *AWSConfig, authServiceAccount string,
-	authServiceAccountNamespace string, secretsPathPrefix string) error {
-
-	vault, err := initializeVault(kubeClient, name, ns, images, authServiceAccount, authServiceAccountNamespace, secretsPathPrefix)
-	if err != nil {
-		return err
-	}
-
-	vault.Spec.Config["storage"] = Storage{
+// PrepareAWSVaultCRD creates a new vault backed by AWS KMS and DynamoDB storage
+func PrepareAWSVaultCRD(awsServiceAccountSecretName string, awsConfig *AWSConfig) (CloudProviderConfig, error) {
+	storage := Storage{
 		DynamoDB: &DynamoDBConfig{
 			HaEnabled:       "true",
 			Region:          awsConfig.DynamoDBRegion,
@@ -238,7 +248,12 @@ func CreateAWSVault(kubeClient kubernetes.Interface, vaultOperatorClient version
 			SecretAccessKey: awsConfig.SecretAccessKey,
 		},
 	}
-	vault.Spec.Config["seal"] = Seal{
+	storageConfig, err := util.ToObjectMap(storage)
+	if err != nil {
+		return CloudProviderConfig{}, errors.Wrap(err, "error creating storage config")
+	}
+
+	seal := Seal{
 		AWSKms: &AWSSealConig{
 			Region:    awsConfig.KMSRegion,
 			AccessKey: awsConfig.AccessKeyID,
@@ -246,21 +261,24 @@ func CreateAWSVault(kubeClient kubernetes.Interface, vaultOperatorClient version
 			KmsKeyID:  awsConfig.KMSKeyID,
 		},
 	}
-	vault.Spec.UnsealConfig = v1alpha1.UnsealConfig{
+	sealConfig, err := util.ToObjectMap(seal)
+	if err != nil {
+		return CloudProviderConfig{}, errors.Wrap(err, "error creating seal config")
+	}
+
+	unsealConfig := v1alpha1.UnsealConfig{
 		AWS: &awsConfig.AWSUnsealConfig,
 	}
-	vault.Spec.CredentialsConfig = v1alpha1.CredentialsConfig{
+	credentialsConfig := v1alpha1.CredentialsConfig{
 		Env:        awsServiceAccountEnv,
 		Path:       awsServiceAccountPath,
 		SecretName: awsServiceAccountSecretName,
 	}
-
-	_, err = vaultOperatorClient.VaultV1alpha1().Vaults(ns).Create(vault)
-	return err
+	return CloudProviderConfig{storageConfig, sealConfig, unsealConfig, credentialsConfig}, nil
 }
 
-// initializeVault intializes and returns vault struct
-func initializeVault(kubeClient kubernetes.Interface, name string, ns string, images map[string]string,
+// NewVaultCRD creates and initializes a new Vault instance.
+func NewVaultCRD(kubeClient kubernetes.Interface, name string, ns string, images map[string]string,
 	authServiceAccount string, authServiceAccountNamespace string, secretsPathPrefix string) (*v1alpha1.Vault, error) {
 
 	err := createVaultServiceAccount(kubeClient, ns, name)
@@ -303,11 +321,11 @@ func initializeVault(kubeClient kubernetes.Interface, name string, ns string, im
 			ServiceType:     string(v1.ServiceTypeClusterIP),
 			ServiceAccount:  name,
 			Config: map[string]interface{}{
-				"api_addr":           fmt.Sprintf("http://%s.%s:8200", name, ns),
+				"api_addr":           fmt.Sprintf("http://%s.%s:%s", name, ns, vault.DefaultVaultPort),
 				"disable_clustering": true,
 				"listener": Listener{
 					Tcp: Tcp{
-						Address:    "0.0.0.0:8200",
+						Address:    fmt.Sprintf("0.0.0.0:%s", vault.DefaultVaultPort),
 						TlsDisable: true,
 					},
 				},
@@ -406,6 +424,7 @@ func ensureVaultRoleBinding(client kubernetes.Interface, namespace string, roleN
 func FindVault(vaultOperatorClient versioned.Interface, name string, ns string) bool {
 	_, err := GetVault(vaultOperatorClient, name, ns)
 	if err != nil {
+		log.Logger().Debugf("vault %s not found in namespace %s, err is %s", name, ns, err)
 		return false
 	}
 	return true
@@ -413,11 +432,11 @@ func FindVault(vaultOperatorClient versioned.Interface, name string, ns string) 
 
 // GetVault gets a specific vault
 func GetVault(vaultOperatorClient versioned.Interface, name string, ns string) (*v1alpha1.Vault, error) {
-	return vaultOperatorClient.Vault().Vaults(ns).Get(name, metav1.GetOptions{})
+	return vaultOperatorClient.VaultV1alpha1().Vaults(ns).Get(name, metav1.GetOptions{})
 }
 
 // GetVaults returns all vaults available in a given namespaces
-func GetVaults(client kubernetes.Interface, vaultOperatorClient versioned.Interface, ns string) ([]*Vault, error) {
+func GetVaults(client kubernetes.Interface, vaultOperatorClient versioned.Interface, ns string, useIngressURL bool) ([]*Vault, error) {
 	vaultList, err := vaultOperatorClient.Vault().Vaults(ns).List(metav1.ListOptions{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "listing vaults in namespace '%s'", ns)
@@ -427,10 +446,18 @@ func GetVaults(client kubernetes.Interface, vaultOperatorClient versioned.Interf
 	for _, v := range vaultList.Items {
 		vaultName := v.Name
 		vaultAuthSaName := GetAuthSaName(v)
-		vaultURL, err := services.FindServiceURL(client, ns, vaultName)
-		if err != nil {
-			vaultURL = ""
+
+		// default to using internal kubernetes service dns name for vault endpoint
+		vaultURL := fmt.Sprintf(defaultInternalVaultURL, vaultName)
+		if useIngressURL {
+			vaultURL, err = services.FindIngressURL(client, ns, vaultName)
+			if err != nil || vaultURL == "" {
+				log.Logger().Debugf("Cannot finding the vault ingress url for vault %s", vaultName)
+				// skip this vault since cannot be used without the ingress
+				continue
+			}
 		}
+
 		vault := Vault{
 			Name:                   vaultName,
 			Namespace:              ns,
@@ -457,4 +484,45 @@ func GetAuthSaName(vault v1alpha1.Vault) string {
 	name := roleObject.(map[string]interface{})["name"]
 
 	return name.(string)
+}
+
+// CreateOrUpdateVault creates the specified Vault CRD if it does not exist or updates it otherwise.
+func CreateOrUpdateVault(vault *v1alpha1.Vault, vaultOperatorClient versioned.Interface, ns string) error {
+	vaultExists := false
+	existingVault, err := GetVault(vaultOperatorClient, vault.Name, ns)
+	if err == nil {
+		vaultExists = true
+	} else {
+		statusError, ok := err.(*apierrors.StatusError)
+		if ok && statusError.ErrStatus.Code == 404 {
+			vaultExists = false
+		} else {
+			return errors.Wrapf(err, "unable to check for existence of vault '%s' in namespace '%s'", vault.Name, ns)
+		}
+	}
+
+	if vaultExists {
+		vaultName := existingVault.ObjectMeta.Name
+		patch, err := json.CreatePatch(existingVault, vault)
+		if err != nil {
+			return errors.Wrapf(err, "unable to create path for update of of vault '%s' in namespace '%s'", vault.Name, ns)
+		}
+		if bytes.Equal(patch, []byte("[]")) {
+			return nil
+		}
+		_, err = vaultOperatorClient.VaultV1alpha1().Vaults(ns).Patch(vaultName, types.JSONPatchType, patch)
+	} else {
+		_, err = vaultOperatorClient.VaultV1alpha1().Vaults(ns).Create(vault)
+	}
+
+	op := "create"
+	if vaultExists {
+		op = "update"
+	}
+	if err != nil {
+		return errors.Wrapf(err, "unable to %s vault '%s' in namespace '%s'", op, vault.Name, ns)
+	}
+	log.Logger().Infof("Vault '%s' in namespace '%s' %sd ", util.ColorInfo(vault.Name), util.ColorInfo(ns), op)
+
+	return nil
 }

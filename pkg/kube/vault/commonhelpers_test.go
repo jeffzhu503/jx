@@ -1,13 +1,17 @@
+// +build unit
+
 package vault_test
 
 import (
+	"testing"
+
 	"github.com/banzaicloud/bank-vaults/operator/pkg/apis/vault/v1alpha1"
 	"github.com/banzaicloud/bank-vaults/operator/pkg/client/clientset/versioned/fake"
+	cmdMocks "github.com/jenkins-x/jx/pkg/cmd/clients/mocks"
+	"github.com/jenkins-x/jx/pkg/cmd/opts"
+	"github.com/jenkins-x/jx/pkg/cmd/testhelpers"
 	gits_test "github.com/jenkins-x/jx/pkg/gits/mocks"
 	helm_test "github.com/jenkins-x/jx/pkg/helm/mocks"
-	cmdMocks "github.com/jenkins-x/jx/pkg/jx/cmd/clients/mocks"
-	"github.com/jenkins-x/jx/pkg/jx/cmd/cmd_test_helpers"
-	"github.com/jenkins-x/jx/pkg/jx/cmd/opts"
 	kubevault "github.com/jenkins-x/jx/pkg/kube/vault"
 	. "github.com/petergtz/pegomock"
 	"github.com/stretchr/testify/assert"
@@ -15,8 +19,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"testing"
 
 	"k8s.io/client-go/kubernetes"
 )
@@ -27,7 +29,7 @@ func setupMocks(t *testing.T, term *terminal.Stdio) (*fake.Clientset, *kubevault
 	if term != nil {
 		options.In, options.Out, options.Err = term.In, term.Out, term.Err
 	}
-	cmd_test_helpers.ConfigureTestOptions(options, gits_test.NewMockGitter(), helm_test.NewMockHelmer())
+	testhelpers.ConfigureTestOptions(options, gits_test.NewMockGitter(), helm_test.NewMockHelmer())
 	vaultOperatorClient := fake.NewSimpleClientset()
 	When(options.VaultOperatorClient()).ThenReturn(vaultOperatorClient, nil)
 	f, err := kubevault.NewInteractiveVaultClientFactory(options)

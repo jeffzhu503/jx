@@ -32,6 +32,10 @@ func (g *GitLocal) FindGitConfigDir(dir string) (string, string, error) {
 	return g.GitCLI.FindGitConfigDir(dir)
 }
 
+func (g *GitLocal) Config(dir string, args ...string) error {
+	return g.GitCLI.Config(dir, args...)
+}
+
 // Clone clones the given git URL into the given directory
 // Faked out
 func (g *GitLocal) Clone(url string, dir string) error {
@@ -68,6 +72,11 @@ func (g *GitLocal) DeleteRemoteBranch(dir string, remoteName string, branch stri
 	return g.GitFake.DeleteRemoteBranch(dir, remoteName, branch)
 }
 
+// DeleteLocalBranch deletes a remote branch
+func (g *GitLocal) DeleteLocalBranch(dir string, branch string) error {
+	return g.GitFake.DeleteLocalBranch(dir, branch)
+}
+
 // CloneOrPull clones  the given git URL or pull if it already exists
 // Faked out
 func (g *GitLocal) CloneOrPull(url string, dir string) error {
@@ -95,9 +104,9 @@ func (g *GitLocal) UpdateRemote(dir, url string) error {
 	return g.GitCLI.UpdateRemote(dir, url)
 }
 
-// Stash stashes the current changes from the given directory
-func (g *GitLocal) Stash(dir string) error {
-	return g.GitCLI.Stash(dir)
+// StashPush stashes the current changes from the given directory
+func (g *GitLocal) StashPush(dir string) error {
+	return g.GitCLI.StashPush(dir)
 }
 
 // CheckoutRemoteBranch checks out the given remote tracking branch
@@ -113,6 +122,11 @@ func (g *GitLocal) RemoteBranches(dir string) ([]string, error) {
 // Checkout checks out the given branch
 func (g *GitLocal) Checkout(dir string, branch string) error {
 	return g.GitCLI.Checkout(dir, branch)
+}
+
+// CheckoutCommitFiles checks out the given files
+func (g *GitLocal) CheckoutCommitFiles(dir string, commit string, files []string) error {
+	return g.GitCLI.CheckoutCommitFiles(dir, commit, files)
 }
 
 // CheckoutOrphan checks out the given branch as an orphan
@@ -152,8 +166,8 @@ func (g *GitLocal) Branch(dir string) (string, error) {
 
 // Push pushes the changes from the repository at the given directory
 // Faked out
-func (g *GitLocal) Push(dir string) error {
-	return g.GitFake.Push(dir)
+func (g *GitLocal) Push(dir string, remote string, force bool, refspec ...string) error {
+	return g.GitFake.Push(dir, "origin", false)
 }
 
 // ForcePushBranch does a force push of the local branch into the remote branch of the repository at the given directory
@@ -184,6 +198,11 @@ func (g *GitLocal) HasChanges(dir string) (bool, error) {
 	return g.GitCLI.HasChanges(dir)
 }
 
+// HasFileChanged returns true if file has changes in git
+func (g *GitLocal) HasFileChanged(dir string, fileName string) (bool, error) {
+	return g.GitCLI.HasFileChanged(dir, fileName)
+}
+
 // CommitIfChanges does a commit if there are any changes in the repository at the given directory
 func (g *GitLocal) CommitIfChanges(dir string, message string) error {
 	return g.GitCLI.CommitIfChanges(dir, message)
@@ -199,9 +218,14 @@ func (g *GitLocal) AddCommit(dir string, msg string) error {
 	return g.GitCLI.AddCommit(dir, msg)
 }
 
-// CreatePushURL creates the Git repository URL with the username and password encoded for HTTPS based URLs
-func (g *GitLocal) CreatePushURL(cloneURL string, userAuth *auth.UserAuth) (string, error) {
-	return g.GitCLI.CreatePushURL(cloneURL, userAuth)
+// CreateAuthenticatedURL creates the Git repository URL with the username and password encoded for HTTPS based URLs
+func (g *GitLocal) CreateAuthenticatedURL(cloneURL string, userAuth *auth.UserAuth) (string, error) {
+	return g.GitCLI.CreateAuthenticatedURL(cloneURL, userAuth)
+}
+
+// AddCommitFiles add files to a commit
+func (g *GitLocal) AddCommitFiles(dir string, msg string, files []string) error {
+	return g.GitCLI.AddCommitFiles(dir, msg, files)
 }
 
 // RepoName formats the repository names based on the organization
@@ -273,9 +297,14 @@ func (g *GitLocal) RemoteBranchNames(dir string, prefix string) ([]string, error
 	return g.GitCLI.RemoteBranchNames(dir, prefix)
 }
 
-// GetPreviousGitTagSHA returns the previous git tag from the repository at the given directory
-func (g *GitLocal) GetPreviousGitTagSHA(dir string) (string, error) {
-	return g.GitCLI.GetPreviousGitTagSHA(dir)
+// RemoteMergedBranchNames returns all remote branch names with the given prefix
+func (g *GitLocal) RemoteMergedBranchNames(dir string, prefix string) ([]string, error) {
+	return g.GitCLI.RemoteMergedBranchNames(dir, prefix)
+}
+
+// GetCommitPointedToByPreviousTag returns the previous git tag from the repository at the given directory
+func (g *GitLocal) GetCommitPointedToByPreviousTag(dir string) (string, string, error) {
+	return g.GitCLI.GetCommitPointedToByPreviousTag(dir)
 }
 
 // GetRevisionBeforeDate returns the revision before the given date
@@ -288,9 +317,14 @@ func (g *GitLocal) GetRevisionBeforeDateText(dir string, dateText string) (strin
 	return g.GitCLI.GetRevisionBeforeDateText(dir, dateText)
 }
 
-// GetCurrentGitTagSHA return the SHA of the current git tag from the repository at the given directory
-func (g *GitLocal) GetCurrentGitTagSHA(dir string) (string, error) {
-	return g.GitCLI.GetCurrentGitTagSHA(dir)
+// GetCommitPointedToByLatestTag return the SHA of the current git tag from the repository at the given directory
+func (g *GitLocal) GetCommitPointedToByLatestTag(dir string) (string, string, error) {
+	return g.GitCLI.GetCommitPointedToByLatestTag(dir)
+}
+
+// GetCommitPointedToByTag return the SHA of the commit pointed to by the given git tag
+func (g *GitLocal) GetCommitPointedToByTag(dir string, tag string) (string, error) {
+	return g.GitCLI.GetCommitPointedToByTag(dir, tag)
 }
 
 // GetLatestCommitMessage returns the latest git commit message
@@ -304,9 +338,20 @@ func (g *GitLocal) FetchTags(dir string) error {
 	return g.GitFake.FetchTags(dir)
 }
 
+// FetchRemoteTags fetches all the tags from a remote repository
+// Faked out
+func (g *GitLocal) FetchRemoteTags(dir string, repo string) error {
+	return g.GitFake.FetchRemoteTags(dir, repo)
+}
+
 // Tags returns all tags from the repository at the given directory
 func (g *GitLocal) Tags(dir string) ([]string, error) {
 	return g.GitCLI.Tags(dir)
+}
+
+// FilterTags returns all tags from the repository at the given directory that match the filter
+func (g *GitLocal) FilterTags(dir string, filter string) ([]string, error) {
+	return g.GitCLI.FilterTags(dir, filter)
 }
 
 // CreateTag creates a tag with the given name and message in the repository at the given directory
@@ -403,9 +448,14 @@ func (g *GitLocal) GetLatestCommitSha(dir string) (string, error) {
 	return g.GitCLI.GetLatestCommitSha(dir)
 }
 
-// ResetHard performs a git reset --hard back to the commitish specified
-func (g *GitLocal) ResetHard(dir string, commitish string) error {
-	return g.GitCLI.ResetHard(dir, commitish)
+// GetFirstCommitSha gets the first commit sha
+func (g *GitLocal) GetFirstCommitSha(dir string) (string, error) {
+	return g.GitCLI.GetFirstCommitSha(dir)
+}
+
+// Reset performs a git reset --hard back to the commitish specified
+func (g *GitLocal) Reset(dir string, commitish string, hard bool) error {
+	return g.GitCLI.Reset(dir, commitish, true)
 }
 
 // RemoteUpdate performs a git remote update
@@ -417,4 +467,89 @@ func (g *GitLocal) RemoteUpdate(dir string) error {
 // LocalBranches will list all local branches
 func (g *GitLocal) LocalBranches(dir string) ([]string, error) {
 	return g.GitCLI.LocalBranches(dir)
+}
+
+// MergeTheirs performs a cherry pick of commitish
+func (g *GitLocal) MergeTheirs(dir string, commitish string) error {
+	return g.GitCLI.MergeTheirs(dir, commitish)
+}
+
+// RebaseTheirs runs git rebase upstream branch
+func (g *GitLocal) RebaseTheirs(dir string, upstream string, branch string, skipEmpty bool) error {
+	return g.GitCLI.RebaseTheirs(dir, upstream, branch, false)
+}
+
+// GetCommits returns the commits in a range, exclusive of startSha and inclusive of endSha
+func (g *GitLocal) GetCommits(dir string, startSha string, endSha string) ([]GitCommit, error) {
+	return g.GitCLI.GetCommits(dir, startSha, endSha)
+}
+
+// RevParse runs git rev parse
+func (g *GitLocal) RevParse(dir string, rev string) (string, error) {
+	return g.GitCLI.RevParse(dir, rev)
+}
+
+// SetUpstreamTo will set the given branch to track the origin branch with the same name
+func (g *GitLocal) SetUpstreamTo(dir string, branch string) error {
+	return g.GitCLI.SetUpstreamTo(dir, branch)
+}
+
+// Remotes will list the names of the remotes
+func (g *GitLocal) Remotes(dir string) ([]string, error) {
+	return g.GitCLI.Remotes(dir)
+}
+
+// StashPop runs git stash pop
+func (g *GitLocal) StashPop(dir string) error {
+	return g.GitCLI.StashPop(dir)
+}
+
+// CloneBare does nothing
+func (g *GitLocal) CloneBare(dir string, url string) error {
+	return nil
+}
+
+// PushMirror does nothing
+func (g *GitLocal) PushMirror(dir string, url string) error {
+	return nil
+}
+
+// GetCommitsNotOnAnyRemote returns a list of commits which are on branch but not present on a remote
+func (g *GitLocal) GetCommitsNotOnAnyRemote(dir string, branch string) ([]GitCommit, error) {
+	return g.GitCLI.GetCommitsNotOnAnyRemote(dir, branch)
+}
+
+// CherryPick does a git cherry-pick of commit
+func (g *GitLocal) CherryPick(dir string, commit string) error {
+	return g.GitCLI.CherryPick(dir, commit)
+}
+
+// CherryPickTheirs does a git cherry-pick of commit
+func (g *GitLocal) CherryPickTheirs(dir string, commit string) error {
+	return g.GitCLI.CherryPickTheirs(dir, commit)
+}
+
+// CherryPickTheirsKeepRedundantCommits does a git cherry-pick of commit
+func (g *GitLocal) CherryPickTheirsKeepRedundantCommits(dir string, commit string) error {
+	return g.GitCLI.CherryPickTheirsKeepRedundantCommits(dir, commit)
+}
+
+// Describe does a git describe of commitish, optionally adding the abbrev arg if not empty
+func (g *GitLocal) Describe(dir string, contains bool, commitish string, abbrev string, fallback bool) (string, string, error) {
+	return g.GitCLI.Describe(dir, false, commitish, abbrev, fallback)
+}
+
+// IsAncestor checks if the possible ancestor commit-ish is an ancestor of the given commit-ish.
+func (g *GitLocal) IsAncestor(dir string, possibleAncestor string, commitish string) (bool, error) {
+	return g.GitCLI.IsAncestor(dir, possibleAncestor, commitish)
+}
+
+// WriteRepoAttributes writes the given content to .git/info/attributes
+func (g *GitLocal) WriteRepoAttributes(dir string, content string) error {
+	return g.GitCLI.WriteRepoAttributes(dir, content)
+}
+
+// ReadRepoAttributes reads the existing content, if any, in .git/info/attributes
+func (g *GitLocal) ReadRepoAttributes(dir string) (string, error) {
+	return g.GitCLI.ReadRepoAttributes(dir)
 }

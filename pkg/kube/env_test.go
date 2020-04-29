@@ -1,3 +1,5 @@
+// +build unit
+
 package kube_test
 
 import (
@@ -6,11 +8,12 @@ import (
 	expect "github.com/Netflix/go-expect"
 	jenkinsio_v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	versiond_mocks "github.com/jenkins-x/jx/pkg/client/clientset/versioned/fake"
+	cmd_mocks "github.com/jenkins-x/jx/pkg/cmd/clients/mocks"
 	"github.com/jenkins-x/jx/pkg/config"
 	"github.com/jenkins-x/jx/pkg/gits"
-	cmd_mocks "github.com/jenkins-x/jx/pkg/jx/cmd/clients/mocks"
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/tests"
+	"github.com/jenkins-x/jx/pkg/util"
 	v1 "k8s.io/api/core/v1"
 
 	git_mocks "github.com/jenkins-x/jx/pkg/gits/mocks"
@@ -213,6 +216,11 @@ func TestCreateEnvironmentSurvey(t *testing.T) {
 	}
 	prefix := ""
 	gitter := git_mocks.NewMockGitter()
+	handles := util.IOFileHandles{
+		Err: console.Err,
+		In:  console.In,
+		Out: console.Out,
+	}
 
 	_, err := kube.CreateEnvironmentSurvey(
 		batchMode,
@@ -231,9 +239,7 @@ func TestCreateEnvironmentSurvey(t *testing.T) {
 		prefix,
 		gitter,
 		nil,
-		console.In,
-		console.Out,
-		console.Err,
+		handles,
 	)
 	assert.NoError(t, err, "Should not error")
 

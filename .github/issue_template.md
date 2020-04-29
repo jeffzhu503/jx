@@ -14,15 +14,6 @@ The output of `jx version` is:
 COPY OUTPUT HERE
 ```
 
-### Jenkins type
-
-<!--
-Select which installation type are you using. 
--->
-- [ ] Next Generation (Tekton + Prow)
-- [ ] Classic Jenkins
-- [ ] Serverless Jenkins (JenkinsFileRunner + Prow)
-
 ### Kubernetes cluster
 
 <!--

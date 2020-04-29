@@ -1,3 +1,5 @@
+// +build unit
+
 package tekton_test
 
 import (
@@ -24,6 +26,78 @@ func TestCreatePipelineRunInfo(t *testing.T) {
 		expected *tekton.PipelineRunInfo
 		prName   string
 	}{{
+		name: "pr-yaml",
+		expected: &tekton.PipelineRunInfo{
+			Branch:      "PR-1",
+			Build:       "1",
+			BuildNumber: 1,
+			Context:     "pr-build",
+			GitInfo: &gits.GitRepository{
+				Host:         "github.com",
+				Name:         "bdd-spring-1567745634",
+				Organisation: "cb-kubecd",
+				Project:      "cb-kubecd",
+				Scheme:       "https",
+				URL:          "https://github.com/cb-kubecd/bdd-spring-1567745634.git",
+			},
+			GitURL:        "https://github.com/cb-kubecd/bdd-spring-1567745634.git",
+			LastCommitSHA: "c6bd3e0221a122dca3a00e87cb9188daed2e1d44",
+			BaseSHA:       "441de50841eb31130c8a59ae0edc00d97f6b7b97",
+			Name:          "cb-kubecd-bdd-spring-1567745634-PR-1-1",
+			Organisation:  "cb-kubecd",
+			Pipeline:      "cb-kubecd/bdd-spring-1567745634/PR-1",
+			PipelineRun:   "cb-kubecd-bdd-spring-1567745634-s92nd-1",
+			Repository:    "bdd-spring-1567745634",
+			Stages: []*tekton.StageInfo{{
+				Name:           syntax.DefaultStageNameForBuildPack,
+				CreatedTime:    *parseTime(t, "2019-09-06T05:24:17Z"),
+				FirstStepImage: "gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/bash:v0.5.1",
+				PodName:        "cb-kubecd-bdd-spring-1567745634-s92nd-1-from-build-pack-x8hsc-pod-f15fe6",
+				Task:           "cb-kubecd-bdd-spring-1567745634-s92nd-from-build-pack-1",
+				TaskRun:        "cb-kubecd-bdd-spring-1567745634-s92nd-1-from-build-pack-x8hsc",
+				Parents:        []string{},
+			}},
+			Type:        tekton.BuildPipeline.String(),
+			CreatedTime: *parseTime(t, "2019-09-06T05:24:17Z"),
+		},
+		prName: "cb-kubecd-bdd-spring-1567745634-s92nd-1",
+	}, {
+		name: "batch-yaml",
+		expected: &tekton.PipelineRunInfo{
+			Branch:      "PR-1",
+			Build:       "1",
+			BuildNumber: 1,
+			Context:     "pr-build",
+			GitInfo: &gits.GitRepository{
+				Host:         "github.com",
+				Name:         "bdd-spring-1567745634",
+				Organisation: "cb-kubecd",
+				Project:      "cb-kubecd",
+				Scheme:       "https",
+				URL:          "https://github.com/cb-kubecd/bdd-spring-1567745634.git",
+			},
+			GitURL:        "https://github.com/cb-kubecd/bdd-spring-1567745634.git",
+			LastCommitSHA: "c6bd3e0221a122dca3a00e87cb9188daed2e1d44",
+			BaseSHA:       "441de50841eb31130c8a59ae0edc00d97f6b7b97",
+			Name:          "cb-kubecd-bdd-spring-1567745634-PR-1-1",
+			Organisation:  "cb-kubecd",
+			Pipeline:      "cb-kubecd/bdd-spring-1567745634/PR-1",
+			PipelineRun:   "cb-kubecd-bdd-spring-1567745634-s92nd-1",
+			Repository:    "bdd-spring-1567745634",
+			Stages: []*tekton.StageInfo{{
+				Name:           syntax.DefaultStageNameForBuildPack,
+				CreatedTime:    *parseTime(t, "2019-09-06T05:24:17Z"),
+				FirstStepImage: "gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/bash:v0.5.1",
+				PodName:        "cb-kubecd-bdd-spring-1567745634-s92nd-1-from-build-pack-x8hsc-pod-f15fe6",
+				Task:           "cb-kubecd-bdd-spring-1567745634-s92nd-from-build-pack-1",
+				TaskRun:        "cb-kubecd-bdd-spring-1567745634-s92nd-1-from-build-pack-x8hsc",
+				Parents:        []string{},
+			}},
+			Type:        tekton.BuildPipeline.String(),
+			CreatedTime: *parseTime(t, "2019-09-06T05:24:17Z"),
+		},
+		prName: "cb-kubecd-bdd-spring-1567745634-s92nd-1",
+	}, {
 		name: "from-build-pack-init-containers",
 		expected: &tekton.PipelineRunInfo{
 			Branch:      "master",
@@ -52,6 +126,8 @@ func TestCreatePipelineRunInfo(t *testing.T) {
 				TaskRun:        "abayer-jx-demo-qs-master-1-build-vhz8d",
 				Parents:        []string{},
 			}},
+			Type:        tekton.BuildPipeline.String(),
+			CreatedTime: *parseTime(t, "2019-02-21T17:10:48-05:00"),
 		},
 		prName: "abayer-jx-demo-qs-master-1",
 	}, {
@@ -91,6 +167,8 @@ func TestCreatePipelineRunInfo(t *testing.T) {
 				TaskRun:        "abayer-js-test-repo-master-1-second-9czt5",
 				Parents:        []string{},
 			}},
+			Type:        tekton.BuildPipeline.String(),
+			CreatedTime: *parseTime(t, "2019-02-21T17:02:43-05:00"),
 		},
 		prName: "abayer-js-test-repo-master-1",
 	}, {
@@ -134,8 +212,51 @@ func TestCreatePipelineRunInfo(t *testing.T) {
 					Parents:        []string{"Parent"},
 				}},
 			}},
+			Type:        tekton.BuildPipeline.String(),
+			CreatedTime: *parseTime(t, "2019-02-21T17:07:36-05:00"),
 		},
 		prName: "abayer-js-test-repo-nested-1",
+	}, {
+		name: "from-yaml-pre-tekton-0.5",
+		expected: &tekton.PipelineRunInfo{
+			Branch:      "master",
+			Build:       "1",
+			BuildNumber: 1,
+			GitInfo: &gits.GitRepository{
+				Host:         "github.com",
+				Name:         "js-test-repo",
+				Organisation: "abayer",
+				Project:      "abayer",
+				Scheme:       "https",
+				URL:          "https://github.com/abayer/js-test-repo",
+			},
+			GitURL:       "https://github.com/abayer/js-test-repo",
+			Name:         "abayer-js-test-repo-master-1",
+			Organisation: "abayer",
+			Pipeline:     "abayer/js-test-repo/master",
+			PipelineRun:  "abayer-js-test-repo-master-1",
+			Repository:   "js-test-repo",
+			Stages: []*tekton.StageInfo{{
+				Name:           "Build",
+				CreatedTime:    *parseTime(t, "2019-03-05T15:06:13-05:00"),
+				FirstStepImage: "us.gcr.io/abayer-jx-experiment/entrypoint-fec85961206220d94e063e541ce30870@sha256:10e2a043d8fb52e6e05f633e7627aa9103d08330a97b9944b9b62a9c099e23d1",
+				PodName:        "abayer-js-test-repo-master-1-build-jmcbd-pod-a726d6",
+				Task:           "abayer-js-test-repo-master-build",
+				TaskRun:        "abayer-js-test-repo-master-1-build-jmcbd",
+				Parents:        []string{},
+			}, {
+				Name:           "Second",
+				CreatedTime:    *parseTime(t, "2019-03-05T15:07:05-05:00"),
+				FirstStepImage: "us.gcr.io/abayer-jx-experiment/entrypoint-fec85961206220d94e063e541ce30870@sha256:10e2a043d8fb52e6e05f633e7627aa9103d08330a97b9944b9b62a9c099e23d1",
+				PodName:        "abayer-js-test-repo-master-1-second-wglk8-pod-762f8d",
+				Task:           "abayer-js-test-repo-master-second",
+				TaskRun:        "abayer-js-test-repo-master-1-second-wglk8",
+				Parents:        []string{},
+			}},
+			Type:        tekton.BuildPipeline.String(),
+			CreatedTime: *parseTime(t, "2019-03-05T15:06:13-05:00"),
+		},
+		prName: "abayer-js-test-repo-master-1",
 	}, {
 		name: "from-yaml",
 		expected: &tekton.PipelineRunInfo{
@@ -173,6 +294,8 @@ func TestCreatePipelineRunInfo(t *testing.T) {
 				TaskRun:        "abayer-js-test-repo-master-1-second-wglk8",
 				Parents:        []string{},
 			}},
+			Type:        tekton.BuildPipeline.String(),
+			CreatedTime: *parseTime(t, "2019-03-05T15:06:13-05:00"),
 		},
 		prName: "abayer-js-test-repo-master-1",
 	}, {
@@ -189,13 +312,13 @@ func TestCreatePipelineRunInfo(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			testCaseDir := path.Join("test_data", "pipeline_info", tt.name)
 
-			jxObjects := []runtime.Object{tekton_helpers_test.AssertLoadPipelineActivity(t, testCaseDir)}
-			structure := tekton_helpers_test.AssertLoadPipelineStructure(t, testCaseDir)
+			jxObjects := []runtime.Object{tekton_helpers_test.AssertLoadSinglePipelineActivity(t, testCaseDir)}
+			structure := tekton_helpers_test.AssertLoadSinglePipelineStructure(t, testCaseDir)
 			if structure != nil {
 				jxObjects = append(jxObjects, structure)
 			}
 
-			tektonObjects := []runtime.Object{tekton_helpers_test.AssertLoadPipelineRun(t, testCaseDir), tekton_helpers_test.AssertLoadPipeline(t, testCaseDir)}
+			tektonObjects := []runtime.Object{tekton_helpers_test.AssertLoadSinglePipelineRun(t, testCaseDir), tekton_helpers_test.AssertLoadSinglePipeline(t, testCaseDir)}
 			tektonObjects = append(tektonObjects, tekton_helpers_test.AssertLoadTasks(t, testCaseDir))
 			tektonObjects = append(tektonObjects, tekton_helpers_test.AssertLoadTaskRuns(t, testCaseDir))
 			tektonObjects = append(tektonObjects, tekton_helpers_test.AssertLoadPipelineResources(t, testCaseDir))

@@ -4,7 +4,7 @@ pipelineConfig:
     pullRequest:
       pipeline:
         agent:
-          image: rawlingsj/executor:dev31
+          image: gcr.io/kaniko-project/executor:9912ccbf8d22bbafbf971124600fbb0b13b9cbd6
         stages:
           - name: ci
             environment:
@@ -24,6 +24,8 @@ pipelineConfig:
                 value: "true"
               - name: PARALLEL_BUILDS
                 value: "2"
+              - name: DISABLE_TEST_CACHING
+                value: "true"
             options:
               containerOptions:
                 resources:
@@ -33,15 +35,9 @@ pipelineConfig:
                   requests:
                     cpu: 3
                     memory: 3072Mi
-                env:
-                - name: CODECOV_TOKEN
-                  valueFrom:
-                    secretKeyRef:
-                      key: token
-                      name: codecov-token
             steps:
               - name: init-jx
-                image: jenkinsxio/jx:2.0.128
+                image: gcr.io/jenkinsxio/builder-jx:0.1.639
                 command: jx
                 args: ['create','git','token','-n','fake','-t','1234','-u','https://github.com','fake']
 
@@ -53,24 +49,19 @@ pipelineConfig:
               - name: build
                 #image: docker.io/golang:1.11.5
                 # needs helm in the image for install_gitops_integration_test.go
-                image: gcr.io/jenkinsxio/builder-go:0.1.332
+                image: gcr.io/jenkinsxio/builder-go-maven
                 command: make
                 args: ['build']
 
-              - name: test-integration
+              - name: integration-test
                 #image: docker.io/golang:1.11.5
                 # needs helm in the image for install_gitops_integration_test.go
-                image: gcr.io/jenkinsxio/builder-go:0.1.477
+                image: gcr.io/jenkinsxio/builder-go-maven
                 command: make
                 args: ['test-slow-integration']
 
               - name: stash-test-results
-                image: jenkinsxio/jx:2.0.128
+                image: gcr.io/jenkinsxio/builder-jx:0.1.639
                 command: jx
                 # TODO force it to use the gs bucket until we sort out why the team setting gets wiped
                 args: ['step', 'stash', '-c', 'integration-tests', '-p', 'build/reports/*.junit.xml', '--bucket-url', 'gs://jx-prod-logs']
-
-              - name: codecov-upload
-                image: gcr.io/jenkinsxio/builder-go:0.1.332
-                command: make
-                args: ['codecov-upload']

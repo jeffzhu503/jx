@@ -6,13 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"text/template"
 
+	"github.com/jenkins-x/jx/pkg/kube/naming"
+	"github.com/jenkins-x/jx/pkg/log"
 	"github.com/jenkins-x/jx/pkg/tekton/syntax"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/yaml"
 )
 
@@ -125,8 +129,29 @@ type CreateJenkinsfileArguments struct {
 	ConfigFile          string
 	TemplateFile        string
 	OutputFile          string
-	JenkinsfileRunner   bool
+	IsTekton            bool
 	ClearContainerNames bool
+}
+
+// +k8s:deepcopy-gen=false
+
+// CreatePipelineArguments contains the arguments to translate a build pack into a pipeline
+type CreatePipelineArguments struct {
+	Lifecycles        *PipelineLifecycles
+	PodTemplates      map[string]*corev1.Pod
+	CustomImage       string
+	DefaultImage      string
+	WorkspaceDir      string
+	GitHost           string
+	GitName           string
+	GitOrg            string
+	ProjectID         string
+	DockerRegistry    string
+	DockerRegistryOrg string
+	KanikoImage       string
+	UseKaniko         bool
+	NoReleasePrepare  bool
+	StepCounter       int
 }
 
 // Validate validates all the arguments are set correctly
@@ -138,7 +163,7 @@ func (a *CreateJenkinsfileArguments) Validate() error {
 		return fmt.Errorf("Missing argument: TemplateFile")
 	}
 	if a.OutputFile == "" {
-		return fmt.Errorf("Missing argument: OutputFile")
+		return fmt.Errorf("Missing argument: ReportName")
 	}
 	return nil
 }
@@ -451,12 +476,12 @@ func defaultDirAroundSteps(dir string, steps []*syntax.Step) []*syntax.Step {
 }
 
 // LoadPipelineConfig returns the pipeline configuration
-func LoadPipelineConfig(fileName string, resolver ImportFileResolver, jenkinsfileRunner bool, clearContainer bool) (*PipelineConfig, error) {
-	return LoadPipelineConfigAndMaybeValidate(fileName, resolver, jenkinsfileRunner, clearContainer, true)
+func LoadPipelineConfig(fileName string, resolver ImportFileResolver, isTekton bool, clearContainer bool) (*PipelineConfig, error) {
+	return LoadPipelineConfigAndMaybeValidate(fileName, resolver, isTekton, clearContainer, true)
 }
 
 // LoadPipelineConfigAndMaybeValidate returns the pipeline configuration, optionally after validating the YAML.
-func LoadPipelineConfigAndMaybeValidate(fileName string, resolver ImportFileResolver, jenkinsfileRunner bool, clearContainer bool, skipYamlValidation bool) (*PipelineConfig, error) {
+func LoadPipelineConfigAndMaybeValidate(fileName string, resolver ImportFileResolver, isTekton bool, clearContainer bool, skipYamlValidation bool) (*PipelineConfig, error) {
 	config := PipelineConfig{}
 	exists, err := util.FileExists(fileName)
 	if err != nil || !exists {
@@ -480,7 +505,7 @@ func LoadPipelineConfigAndMaybeValidate(fileName string, resolver ImportFileReso
 		return &config, errors.Wrapf(err, "Failed to unmarshal file %s", fileName)
 	}
 	pipelines := &config.Pipelines
-	pipelines.RemoveWhenStatements(jenkinsfileRunner)
+	pipelines.RemoveWhenStatements(isTekton)
 	if clearContainer {
 		// lets force any agent for prow / jenkinsfile runner
 		config.Agent = clearContainerAndLabel(config.Agent)
@@ -511,7 +536,7 @@ func LoadPipelineConfigAndMaybeValidate(fileName string, resolver ImportFileReso
 	if !exists {
 		return &config, fmt.Errorf("base pipeline file does not exist %s", file)
 	}
-	basePipeline, err := LoadPipelineConfig(file, resolver, jenkinsfileRunner, clearContainer)
+	basePipeline, err := LoadPipelineConfig(file, resolver, isTekton, clearContainer)
 	if err != nil {
 		return &config, errors.Wrapf(err, "Failed to base pipeline file %s", file)
 	}
@@ -598,8 +623,14 @@ func (c *PipelineConfig) ExtendPipeline(base *PipelineConfig, clearContainer boo
 	} else if base.Agent.Dir == "" && c.Agent.Dir != "" {
 		base.Agent.Dir = c.Agent.Dir
 	}
+	mergedContainer, err := syntax.MergeContainers(base.ContainerOptions, c.ContainerOptions)
+	if err != nil {
+		return err
+	}
+	c.ContainerOptions = mergedContainer
 	base.defaultContainerAndDir()
 	c.defaultContainerAndDir()
+	c.Env = syntax.CombineEnv(c.Env, base.Env)
 	c.Pipelines.Extend(&base.Pipelines)
 	return nil
 }
@@ -654,11 +685,11 @@ func ExtendPipelines(pipelineName string, parent, base *PipelineLifecycles, over
 	for _, override := range overrides {
 		if override.MatchesPipeline(pipelineName) {
 			// If no name, stage, or agent is specified, remove the whole pipeline.
-			if override.Name == "" && override.Stage == "" && override.Agent == nil {
+			if override.Name == "" && override.Stage == "" && override.Agent == nil && override.ContainerOptions == nil && len(override.Volumes) == 0 {
 				return &PipelineLifecycles{}
 			}
 
-			l.Pipeline = syntax.ExtendParsedPipeline(l.Pipeline, override)
+			l.Pipeline = syntax.ApplyStepOverridesToPipeline(l.Pipeline, override)
 		}
 	}
 	return l
@@ -726,7 +757,7 @@ func (a *CreateJenkinsfileArguments) GenerateJenkinsfile(resolver ImportFileReso
 	if err != nil {
 		return err
 	}
-	config, err := LoadPipelineConfig(a.ConfigFile, resolver, a.JenkinsfileRunner, a.ClearContainerNames)
+	config, err := LoadPipelineConfig(a.ConfigFile, resolver, a.IsTekton, a.ClearContainerNames)
 	if err != nil {
 		return err
 	}
@@ -761,4 +792,171 @@ func (a *CreateJenkinsfileArguments) GenerateJenkinsfile(resolver ImportFileReso
 		return errors.Wrapf(err, "failed to write file %s", outFile)
 	}
 	return nil
+}
+
+// createPipelineSteps translates a step into one or more steps that can be used in jenkins-x.yml pipeline syntax.
+func (c *PipelineConfig) createPipelineSteps(step *syntax.Step, prefixPath string, args CreatePipelineArguments) ([]syntax.Step, int) {
+	steps := []syntax.Step{}
+
+	containerName := c.Agent.GetImage()
+
+	if step.GetImage() != "" {
+		containerName = step.GetImage()
+	}
+
+	dir := args.WorkspaceDir
+
+	if step.Dir != "" {
+		dir = step.Dir
+	}
+
+	if step.GetCommand() != "" {
+		if containerName == "" {
+			containerName = args.DefaultImage
+			log.Logger().Warnf("No 'agent.container' specified in the pipeline configuration so defaulting to use: %s", containerName)
+		}
+
+		s := syntax.Step{}
+		args.StepCounter++
+		prefix := prefixPath
+		if prefix != "" {
+			prefix += "-"
+		}
+		stepName := step.Name
+		if stepName == "" {
+			stepName = "step" + strconv.Itoa(1+args.StepCounter)
+		}
+		s.Name = prefix + stepName
+		s.Command = replaceCommandText(step)
+		if args.CustomImage != "" {
+			s.Image = args.CustomImage
+		} else {
+			s.Image = containerName
+		}
+
+		s.Dir = dir
+		s.Env = step.Env
+		steps = append(steps, s)
+	} else if step.Loop != nil {
+		// Just copy in the loop step without altering it.
+		// TODO: We don't get magic around image resolution etc, but we avoid naming collisions that result otherwise.
+		steps = append(steps, *step)
+	}
+	for _, s := range step.Steps {
+		// TODO add child prefix?
+		childPrefixPath := prefixPath
+		args.WorkspaceDir = dir
+		nestedSteps, nestedCounter := c.createPipelineSteps(s, childPrefixPath, args)
+		args.StepCounter = nestedCounter
+		steps = append(steps, nestedSteps...)
+	}
+	return steps, args.StepCounter
+}
+
+// replaceCommandText lets remove any escaped "\$" stuff in the pipeline library
+// and replace any use of the VERSION file with using the VERSION env var
+func replaceCommandText(step *syntax.Step) string {
+	answer := strings.Replace(step.GetFullCommand(), "\\$", "$", -1)
+
+	// lets replace the old way of setting versions
+	answer = strings.Replace(answer, "export VERSION=`cat VERSION` && ", "", 1)
+	answer = strings.Replace(answer, "export VERSION=$PREVIEW_VERSION && ", "", 1)
+
+	for _, text := range []string{"$(cat VERSION)", "$(cat ../VERSION)", "$(cat ../../VERSION)"} {
+		answer = strings.Replace(answer, text, "${VERSION}", -1)
+	}
+	return answer
+}
+
+// createStageForBuildPack generates the Task for a build pack
+func (c *PipelineConfig) createStageForBuildPack(args CreatePipelineArguments) (*syntax.Stage, int, error) {
+	if args.Lifecycles == nil {
+		return nil, args.StepCounter, errors.New("generatePipeline: no lifecycles")
+	}
+
+	// lets generate the pipeline using the build packs
+	container := ""
+	if c.Agent != nil {
+		container = c.Agent.GetImage()
+
+	}
+	if args.CustomImage != "" {
+		container = args.CustomImage
+	}
+	if container == "" {
+		container = args.DefaultImage
+	}
+
+	steps := []syntax.Step{}
+	for _, n := range args.Lifecycles.All() {
+		l := n.Lifecycle
+		if l == nil {
+			continue
+		}
+		if !args.NoReleasePrepare && n.Name == "setversion" {
+			continue
+		}
+
+		for _, s := range l.Steps {
+			newSteps, newCounter := c.createPipelineSteps(s, n.Name, args)
+			args.StepCounter = newCounter
+			steps = append(steps, newSteps...)
+		}
+	}
+
+	stage := &syntax.Stage{
+		Name: syntax.DefaultStageNameForBuildPack,
+		Agent: &syntax.Agent{
+			Image: container,
+		},
+		Steps: steps,
+	}
+
+	return stage, args.StepCounter, nil
+}
+
+// CreatePipelineForBuildPack translates a set of lifecycles into a full pipeline.
+func (c *PipelineConfig) CreatePipelineForBuildPack(args CreatePipelineArguments) (*syntax.ParsedPipeline, int, error) {
+	args.GitOrg = naming.ToValidName(strings.ToLower(args.GitOrg))
+	args.GitName = naming.ToValidName(strings.ToLower(args.GitName))
+	args.DockerRegistryOrg = strings.ToLower(args.DockerRegistryOrg)
+
+	stage, newCounter, err := c.createStageForBuildPack(args)
+	if err != nil {
+		return nil, args.StepCounter, errors.Wrapf(err, "Failed to generate stage from build pack")
+	}
+
+	parsed := &syntax.ParsedPipeline{
+		Stages: []syntax.Stage{*stage},
+	}
+
+	// If agent.container is specified, use that for default container configuration for step images.
+	containerName := c.Agent.GetImage()
+	if containerName != "" {
+		if args.PodTemplates != nil && args.PodTemplates[containerName] != nil {
+			podTemplate := args.PodTemplates[containerName]
+			container := podTemplate.Spec.Containers[0]
+			if !equality.Semantic.DeepEqual(container, corev1.Container{}) {
+				container.Name = ""
+				container.Command = nil
+				container.Args = nil
+				container.Image = ""
+				container.WorkingDir = ""
+				container.Stdin = false
+				container.TTY = false
+				if parsed.Options == nil {
+					parsed.Options = &syntax.RootOptions{}
+				}
+				parsed.Options.ContainerOptions = &container
+				for _, v := range podTemplate.Spec.Volumes {
+					parsed.Options.Volumes = append(parsed.Options.Volumes, &corev1.Volume{
+						Name:         v.Name,
+						VolumeSource: v.VolumeSource,
+					})
+				}
+			}
+		}
+	}
+
+	return parsed, newCounter, nil
 }

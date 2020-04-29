@@ -1,11 +1,14 @@
+// +build unit
+
 package jenkins_test
 
 import (
+	"path/filepath"
+	"testing"
+
 	"github.com/jenkins-x/jx/pkg/jenkins"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"path/filepath"
-	"testing"
 )
 
 func TestUpdateCenter(t *testing.T) {

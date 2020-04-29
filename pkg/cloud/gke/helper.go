@@ -1,16 +1,12 @@
 package gke
 
 import (
-	"io/ioutil"
-	"os"
 	"sort"
 	"strings"
 
-	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
+
+	"github.com/jenkins-x/jx/pkg/util"
 )
 
 var PROJECT_LIST_HEADER = "PROJECT_ID"
@@ -147,52 +143,11 @@ func GetGoogleMachineTypes() []string {
 	}
 }
 
-// CreateGCPServiceAccount creates a service account in GCP for a service using the account roles specified
-func CreateGCPServiceAccount(kubeClient kubernetes.Interface, serviceName, namespace, clusterName, projectID string, serviceAccountRoles []string, serviceAccountSecretKey string) (string, error) {
-	serviceAccountDir, err := ioutil.TempDir("", "gke")
-	if err != nil {
-		return "", errors.Wrap(err, "creating a temporary folder where the service account will be stored")
+// ParseContext parses the context string for GKE and gets the GKE project, GKE zone and cluster name
+func ParseContext(context string) (string, string, string, error) {
+	parts := strings.Split(context, "_")
+	if len(parts) != 4 {
+		return "", "", "", errors.Errorf("unable to parse %s as <project id>_<zone>_<cluster name>", context)
 	}
-	defer os.RemoveAll(serviceAccountDir)
-
-	serviceAccountName := ServiceAccountName(serviceName)
-	if err != nil {
-		return "", err
-	}
-	serviceAccountPath, err := GetOrCreateServiceAccount(serviceAccountName, projectID, serviceAccountDir, serviceAccountRoles)
-	if err != nil {
-		return "", errors.Wrap(err, "creating the service account")
-	}
-
-	secretName, err := storeGCPServiceAccountIntoSecret(kubeClient, serviceAccountPath, serviceName, namespace, serviceAccountSecretKey)
-	if err != nil {
-		return "", errors.Wrap(err, "storing the service account into a secret")
-	}
-	return secretName, nil
-}
-
-func storeGCPServiceAccountIntoSecret(client kubernetes.Interface, serviceAccountPath, serviceName, namespace string, serviceAccountSecretKey string) (string, error) {
-	serviceAccount, err := ioutil.ReadFile(serviceAccountPath)
-	if err != nil {
-		return "", errors.Wrapf(err, "reading the service account from file '%s'", serviceAccountPath)
-	}
-
-	secretName := GcpServiceAccountSecretName(serviceName)
-	secret := &v1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: secretName,
-		},
-		Data: map[string][]byte{
-			serviceAccountSecretKey: serviceAccount,
-		},
-	}
-
-	secrets := client.CoreV1().Secrets(namespace)
-	_, err = secrets.Get(secretName, metav1.GetOptions{})
-	if err != nil {
-		_, err = secrets.Create(secret)
-	} else {
-		_, err = secrets.Update(secret)
-	}
-	return secretName, nil
+	return parts[1], parts[2], parts[3], nil
 }

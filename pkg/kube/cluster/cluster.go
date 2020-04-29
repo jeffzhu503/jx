@@ -3,6 +3,9 @@ package cluster
 import (
 	"strings"
 
+	"k8s.io/client-go/rest"
+
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	"github.com/pkg/errors"
 	"k8s.io/client-go/tools/clientcmd/api"
 
@@ -44,7 +47,7 @@ func ShortName(kuber kube.Kuber) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "retrieving the cluster name")
 	}
-	return kube.ToValidNameTruncated(clusterName, 16), nil
+	return naming.ToValidNameTruncated(clusterName, 16), nil
 }
 
 // SimplifiedClusterName get the simplified cluster name from the long-winded context cluster name that gets generated
@@ -53,4 +56,21 @@ func ShortName(kuber kube.Kuber) (string, error) {
 func SimplifiedClusterName(complexClusterName string) string {
 	split := strings.Split(complexClusterName, "_")
 	return split[len(split)-1]
+}
+
+// GetSafeUsername returns username by checking the active configuration
+func GetSafeUsername(username string) string {
+	if strings.Contains(username, "Your active configuration is") {
+		return strings.Split(username, "\n")[1]
+	}
+	return username
+}
+
+// IsInCluster tells if we are running incluster
+func IsInCluster() bool {
+	_, err := rest.InClusterConfig()
+	if err != nil {
+		return false
+	}
+	return true
 }

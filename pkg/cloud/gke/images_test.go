@@ -1,9 +1,12 @@
+// +build unit
+
 package gke
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 var sampleOutput = `[

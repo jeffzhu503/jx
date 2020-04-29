@@ -1,3 +1,5 @@
+// +build unit
+
 package vault_test
 
 import (
@@ -6,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/pborman/uuid"
-
-	"github.com/jenkins-x/jx/pkg/vault"
 
 	"github.com/stretchr/testify/assert"
 
@@ -36,7 +36,10 @@ func TestReplaceURIs(t *testing.T) {
 	pegomock.When(vaultClient.Read(pegomock.EqString(path))).ThenReturn(map[string]interface{}{
 		key: secret,
 	}, nil)
-	result, err := vault.ReplaceURIs(valuesyaml, vaultClient)
+	pegomock.When(vaultClient.ReplaceURIs(pegomock.EqString(valuesyaml))).ThenReturn(fmt.Sprintf(`foo:
+  bar: %s
+`, secret), nil)
+	result, err := vaultClient.ReplaceURIs(valuesyaml)
 	assert.NoError(t, err)
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf(`foo:
@@ -48,7 +51,7 @@ func TestReplaceRealExampleURI(t *testing.T) {
 	pegomock.RegisterMockTestingT(t)
 	vaultClient := vault_test.NewMockClient()
 	path := "secret/gitOps/jenkins-x/environment-tekton-mole-dev/connectors-github-config-clientid-secret"
-	key := "token-passthrough"
+	key := "token"
 	secret := uuid.New()
 	valuesyaml := fmt.Sprintf(`foo:
   bar: vault:%s:%s
@@ -64,7 +67,10 @@ func TestReplaceRealExampleURI(t *testing.T) {
 	pegomock.When(vaultClient.Read(pegomock.EqString(path))).ThenReturn(map[string]interface{}{
 		key: secret,
 	}, nil)
-	result, err := vault.ReplaceURIs(valuesyaml, vaultClient)
+	pegomock.When(vaultClient.ReplaceURIs(pegomock.EqString(valuesyaml))).ThenReturn(fmt.Sprintf(`foo:
+  bar: %s
+`, secret), nil)
+	result, err := vaultClient.ReplaceURIs(valuesyaml)
 	assert.NoError(t, err)
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf(`foo:

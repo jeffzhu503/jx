@@ -1,3 +1,5 @@
+// +build unit
+
 package kube_test
 
 import (
@@ -7,8 +9,8 @@ import (
 	"github.com/jenkins-x/jx/pkg/kube"
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/stretchr/testify/assert"
-	"k8s.io/api/core/v1"
 
+	v1 "k8s.io/api/core/v1"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	mock "k8s.io/client-go/kubernetes/fake"

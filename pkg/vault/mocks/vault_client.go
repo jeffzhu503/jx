@@ -4,10 +4,11 @@
 package vault_test
 
 import (
-	pegomock "github.com/petergtz/pegomock"
 	url "net/url"
 	"reflect"
 	"time"
+
+	pegomock "github.com/petergtz/pegomock"
 )
 
 type MockClient struct {
@@ -107,6 +108,25 @@ func (mock *MockClient) ReadYaml(_param0 string) (string, error) {
 	}
 	params := []pegomock.Param{_param0}
 	result := pegomock.GetGenericMockFrom(mock).Invoke("ReadYaml", params, []reflect.Type{reflect.TypeOf((*string)(nil)).Elem(), reflect.TypeOf((*error)(nil)).Elem()})
+	var ret0 string
+	var ret1 error
+	if len(result) != 0 {
+		if result[0] != nil {
+			ret0 = result[0].(string)
+		}
+		if result[1] != nil {
+			ret1 = result[1].(error)
+		}
+	}
+	return ret0, ret1
+}
+
+func (mock *MockClient) ReplaceURIs(_param0 string) (string, error) {
+	if mock == nil {
+		panic("mock must not be nil. Use myMock := NewMockClient().")
+	}
+	params := []pegomock.Param{_param0}
+	result := pegomock.GetGenericMockFrom(mock).Invoke("ReplaceURIs", params, []reflect.Type{reflect.TypeOf((*string)(nil)).Elem(), reflect.TypeOf((*error)(nil)).Elem()})
 	var ret0 string
 	var ret1 error
 	if len(result) != 0 {
@@ -250,7 +270,7 @@ func (c *MockClient_List_OngoingVerification) GetCapturedArguments() string {
 func (c *MockClient_List_OngoingVerification) GetAllCapturedArguments() (_param0 []string) {
 	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
 	if len(params) > 0 {
-		_param0 = make([]string, len(params[0]))
+		_param0 = make([]string, len(c.methodInvocations))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
 		}
@@ -277,7 +297,7 @@ func (c *MockClient_Read_OngoingVerification) GetCapturedArguments() string {
 func (c *MockClient_Read_OngoingVerification) GetAllCapturedArguments() (_param0 []string) {
 	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
 	if len(params) > 0 {
-		_param0 = make([]string, len(params[0]))
+		_param0 = make([]string, len(c.methodInvocations))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
 		}
@@ -304,11 +324,11 @@ func (c *MockClient_ReadObject_OngoingVerification) GetCapturedArguments() (stri
 func (c *MockClient_ReadObject_OngoingVerification) GetAllCapturedArguments() (_param0 []string, _param1 []interface{}) {
 	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
 	if len(params) > 0 {
-		_param0 = make([]string, len(params[0]))
+		_param0 = make([]string, len(c.methodInvocations))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
 		}
-		_param1 = make([]interface{}, len(params[1]))
+		_param1 = make([]interface{}, len(c.methodInvocations))
 		for u, param := range params[1] {
 			_param1[u] = param.(interface{})
 		}
@@ -335,7 +355,34 @@ func (c *MockClient_ReadYaml_OngoingVerification) GetCapturedArguments() string 
 func (c *MockClient_ReadYaml_OngoingVerification) GetAllCapturedArguments() (_param0 []string) {
 	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
 	if len(params) > 0 {
-		_param0 = make([]string, len(params[0]))
+		_param0 = make([]string, len(c.methodInvocations))
+		for u, param := range params[0] {
+			_param0[u] = param.(string)
+		}
+	}
+	return
+}
+
+func (verifier *VerifierMockClient) ReplaceURIs(_param0 string) *MockClient_ReplaceURIs_OngoingVerification {
+	params := []pegomock.Param{_param0}
+	methodInvocations := pegomock.GetGenericMockFrom(verifier.mock).Verify(verifier.inOrderContext, verifier.invocationCountMatcher, "ReplaceURIs", params, verifier.timeout)
+	return &MockClient_ReplaceURIs_OngoingVerification{mock: verifier.mock, methodInvocations: methodInvocations}
+}
+
+type MockClient_ReplaceURIs_OngoingVerification struct {
+	mock              *MockClient
+	methodInvocations []pegomock.MethodInvocation
+}
+
+func (c *MockClient_ReplaceURIs_OngoingVerification) GetCapturedArguments() string {
+	_param0 := c.GetAllCapturedArguments()
+	return _param0[len(_param0)-1]
+}
+
+func (c *MockClient_ReplaceURIs_OngoingVerification) GetAllCapturedArguments() (_param0 []string) {
+	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
+	if len(params) > 0 {
+		_param0 = make([]string, len(c.methodInvocations))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
 		}
@@ -362,11 +409,11 @@ func (c *MockClient_Write_OngoingVerification) GetCapturedArguments() (string, m
 func (c *MockClient_Write_OngoingVerification) GetAllCapturedArguments() (_param0 []string, _param1 []map[string]interface{}) {
 	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
 	if len(params) > 0 {
-		_param0 = make([]string, len(params[0]))
+		_param0 = make([]string, len(c.methodInvocations))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
 		}
-		_param1 = make([]map[string]interface{}, len(params[1]))
+		_param1 = make([]map[string]interface{}, len(c.methodInvocations))
 		for u, param := range params[1] {
 			_param1[u] = param.(map[string]interface{})
 		}
@@ -393,11 +440,11 @@ func (c *MockClient_WriteObject_OngoingVerification) GetCapturedArguments() (str
 func (c *MockClient_WriteObject_OngoingVerification) GetAllCapturedArguments() (_param0 []string, _param1 []interface{}) {
 	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
 	if len(params) > 0 {
-		_param0 = make([]string, len(params[0]))
+		_param0 = make([]string, len(c.methodInvocations))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
 		}
-		_param1 = make([]interface{}, len(params[1]))
+		_param1 = make([]interface{}, len(c.methodInvocations))
 		for u, param := range params[1] {
 			_param1[u] = param.(interface{})
 		}
@@ -424,11 +471,11 @@ func (c *MockClient_WriteYaml_OngoingVerification) GetCapturedArguments() (strin
 func (c *MockClient_WriteYaml_OngoingVerification) GetAllCapturedArguments() (_param0 []string, _param1 []string) {
 	params := pegomock.GetGenericMockFrom(c.mock).GetInvocationParams(c.methodInvocations)
 	if len(params) > 0 {
-		_param0 = make([]string, len(params[0]))
+		_param0 = make([]string, len(c.methodInvocations))
 		for u, param := range params[0] {
 			_param0[u] = param.(string)
 		}
-		_param1 = make([]string, len(params[1]))
+		_param1 = make([]string, len(c.methodInvocations))
 		for u, param := range params[1] {
 			_param1[u] = param.(string)
 		}

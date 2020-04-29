@@ -1,12 +1,15 @@
+// +build unit
+
 package util
 
 import (
-	"github.com/stretchr/testify/assert"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // transport for testing, using easy to spot values

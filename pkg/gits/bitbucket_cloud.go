@@ -3,6 +3,7 @@ package gits
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -112,12 +113,15 @@ func BitbucketRepositoryToGitRepository(bRepo bitbucket.Repository) *GitReposito
 		httpCloneURL = sshURL
 	}
 	return &GitRepository{
-		Name:     bRepo.Name,
-		HTMLURL:  bRepo.Links.Html.Href,
-		CloneURL: httpCloneURL,
-		SSHURL:   sshURL,
-		Language: bRepo.Language,
-		Fork:     isFork,
+		Name:         bRepo.Name,
+		HTMLURL:      bRepo.Links.Html.Href,
+		CloneURL:     httpCloneURL,
+		SSHURL:       sshURL,
+		Language:     bRepo.Language,
+		Fork:         isFork,
+		Organisation: bRepo.Owner.Username,
+		Project:      bRepo.Project.Name,
+		Private:      bRepo.IsPrivate,
 	}
 }
 
@@ -305,6 +309,9 @@ func (b *BitbucketCloudProvider) CreatePullRequest(
 	data *GitPullRequestArguments,
 ) (*GitPullRequest, error) {
 
+	if data.GitRepository.Organisation == "" {
+		data.GitRepository.Organisation = b.Username
+	}
 	head := bitbucket.PullrequestEndpointBranch{Name: data.Head}
 	sourceFullName := fmt.Sprintf("%s/%s", data.GitRepository.Organisation, data.GitRepository.Name)
 	sourceRepo := bitbucket.Repository{FullName: sourceFullName}
@@ -377,6 +384,11 @@ func (b *BitbucketCloudProvider) CreatePullRequest(
 	}
 
 	return newPR, nil
+}
+
+// UpdatePullRequest updates pull request number with data
+func (b *BitbucketCloudProvider) UpdatePullRequest(data *GitPullRequestArguments, number int) (*GitPullRequest, error) {
+	return nil, errors.Errorf("Not yet implemented for bitbucket")
 }
 
 func (b *BitbucketCloudProvider) UpdatePullRequestStatus(pr *GitPullRequest) error {
@@ -520,7 +532,7 @@ func (b *BitbucketCloudProvider) GetPullRequestCommits(owner string, repository 
 			if commit.Author.User != nil {
 				login = commit.Author.User.Username
 			}
-			// Author.Raw contains the Git commit author in the form: User <email@example.com>
+			// Author.MessageLines contains the Git commit author in the form: User <email@example.com>
 			email = rawEmailMatcher.ReplaceAllString(commit.Author.Raw, "$1")
 		}
 
@@ -588,9 +600,25 @@ func (b *BitbucketCloudProvider) ListOpenPullRequests(owner string, repo string)
 	var results bitbucket.PaginatedPullrequests
 	var err error
 
+	if owner == "" {
+		owner = b.Username
+	}
+	repoResource, _, err := b.Client.RepositoriesApi.RepositoriesUsernameRepoSlugGet(
+		b.Context,
+		owner,
+		repo,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to find repository %s/%s", owner, repo)
+	}
+
+	repoSlug := repoResource.Uuid
+	if repoSlug == "" {
+		return nil, fmt.Errorf("failed to find slug for repository %s/%s", owner, repo)
+	}
 	for {
 		if results.Next == "" {
-			results, _, err = b.Client.PullrequestsApi.PullrequestsTargetUserGet(b.Context, "", owner, nil)
+			results, _, err = b.Client.PullrequestsApi.RepositoriesUsernameRepoSlugPullrequestsGet(b.Context, owner, repoSlug, nil)
 		} else {
 			results, _, err = b.Client.PagingApi.PullrequestsPageGet(b.Context, results.Next)
 		}
@@ -600,7 +628,9 @@ func (b *BitbucketCloudProvider) ListOpenPullRequests(owner string, repo string)
 		}
 
 		for _, pr := range results.Values {
-			answer = append(answer, b.toPullRequest(pr, int(pr.Id)))
+			if pr.Author != nil && pr.Author.Username == b.Username {
+				answer = append(answer, b.toPullRequest(pr, int(pr.Id)))
+			}
 		}
 
 		if results.Next == "" {
@@ -645,6 +675,7 @@ func (b *BitbucketCloudProvider) ListCommitStatus(org string, repo string, sha s
 				State:       stateMap[status.State],
 				TargetURL:   status.Links.Self.Href,
 				Description: status.Description,
+				Context:     status.Name,
 			}
 			statuses = append(statuses, newStatus)
 		}
@@ -956,9 +987,12 @@ func (b *BitbucketCloudProvider) UserAuth() auth.UserAuth {
 
 // UserInfo returns the user info
 func (b *BitbucketCloudProvider) UserInfo(username string) *GitUser {
+	if username == "" {
+		username = b.Username
+	}
 	user, _, err := b.Client.UsersApi.UsersUsernameGet(b.Context, username)
 	if err != nil {
-		log.Logger().Error("Unable to fetch user info for " + username + " due to " + err.Error() + "")
+		log.Logger().Error("Unable to fetch user info for " + username + " due to " + err.Error())
 		return nil
 	}
 
@@ -975,11 +1009,23 @@ func (b *BitbucketCloudProvider) UpdateRelease(owner string, repo string, tag st
 	return nil
 }
 
+// UpdateReleaseStatus is not supported for this git provider
+func (b *BitbucketCloudProvider) UpdateReleaseStatus(owner string, repo string, tag string, releaseInfo *GitRelease) error {
+	log.Logger().Warn("Bitbucket Cloud doesn't support releases")
+	return nil
+}
+
 // ListReleases lists the releases
 func (b *BitbucketCloudProvider) ListReleases(org string, name string) ([]*GitRelease, error) {
 	answer := []*GitRelease{}
 	log.Logger().Warn("Bitbucket Cloud doesn't support releases")
 	return answer, nil
+}
+
+// GetRelease is not supported on BitBucket Cloud
+func (b *BitbucketCloudProvider) GetRelease(org string, name string, tag string) (*GitRelease, error) {
+	log.Logger().Warn("Bitbucket Cloud doesn't support releases")
+	return nil, nil
 }
 
 func (b *BitbucketCloudProvider) AddCollaborator(user string, organisation string, repo string) error {
@@ -998,7 +1044,8 @@ func (b *BitbucketCloudProvider) AcceptInvitation(ID int64) (*github.Response, e
 }
 
 func (b *BitbucketCloudProvider) GetContent(org string, name string, path string, ref string) (*GitFileContent, error) {
-	return nil, fmt.Errorf("Getting content not supported on bitbucket")
+	log.Logger().Warn("Getting content not supported on bitbucket")
+	return nil, nil
 }
 
 // ShouldForkForPullReques treturns true if we should create a personal fork of this repository
@@ -1019,10 +1066,42 @@ func BitBucketCloudAccessTokenURL(url string, username string) string {
 
 // ListCommits lists the commits for the specified repo and owner
 func (b *BitbucketCloudProvider) ListCommits(owner, repo string, opt *ListCommitsArguments) ([]*GitCommit, error) {
-	return nil, fmt.Errorf("Listing commits not supported on bitbucket")
+	log.Logger().Warn("Listing commits not supported on bitbucket cloud")
+	return nil, nil
 }
 
 // AddLabelsToIssue adds labels to issues or pullrequests
 func (b *BitbucketCloudProvider) AddLabelsToIssue(owner, repo string, number int, labels []string) error {
-	return fmt.Errorf("Getting content not supported on bitbucket")
+	log.Logger().Warn("Adding labels to issues or pullrequest not implemented/supported on bitbucket cloud")
+	return nil
+}
+
+// GetLatestRelease fetches the latest release from the git provider for org and name
+func (b *BitbucketCloudProvider) GetLatestRelease(org string, name string) (*GitRelease, error) {
+	return nil, nil
+}
+
+// UploadReleaseAsset will upload an asset to org/repo to a release with id, giving it a name, it will return the release asset from the git provider
+func (b *BitbucketCloudProvider) UploadReleaseAsset(org string, repo string, id int64, name string, asset *os.File) (*GitReleaseAsset, error) {
+	return nil, nil
+}
+
+// GetBranch returns the branch information for an owner/repo, including the commit at the tip
+func (b *BitbucketCloudProvider) GetBranch(owner string, repo string, branch string) (*GitBranch, error) {
+	return nil, nil
+}
+
+// GetProjects returns all the git projects in owner/repo
+func (b *BitbucketCloudProvider) GetProjects(owner string, repo string) ([]GitProject, error) {
+	return nil, nil
+}
+
+//ConfigureFeatures sets specific features as enabled or disabled for owner/repo
+func (b *BitbucketCloudProvider) ConfigureFeatures(owner string, repo string, issues *bool, projects *bool, wikis *bool) (*GitRepository, error) {
+	return nil, nil
+}
+
+// IsWikiEnabled returns true if a wiki is enabled for owner/repo
+func (b *BitbucketCloudProvider) IsWikiEnabled(owner string, repo string) (bool, error) {
+	return false, nil
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	stackdriver "github.com/TV4/logrus-stackdriver-formatter"
 	"github.com/fatih/color"
 	"github.com/sirupsen/logrus"
 )
@@ -23,10 +24,6 @@ var (
 	// colorWarn returns a new function that returns status-colorized (yellow) strings for the
 	// given arguments with fmt.Sprint().
 	colorWarn = color.New(color.FgYellow).SprintFunc()
-
-	// colorInfo returns a new function that returns info-colorized (green) strings for the
-	// given arguments with fmt.Sprint().
-	colorInfo = color.New(color.FgGreen).SprintFunc()
 
 	// colorError returns a new function that returns error-colorized (red) strings for the
 	// given arguments with fmt.Sprint().
@@ -46,6 +43,9 @@ const (
 
 	// FormatLayoutText uses classic colorful Jenkins X layout
 	FormatLayoutText FormatLayoutType = "text"
+
+	// FormatLayoutStackdriver uses a custom formatter for stackdriver
+	FormatLayoutStackdriver FormatLayoutType = "stackdriver"
 )
 
 func initializeLogger() error {
@@ -78,6 +78,8 @@ func initializeLogger() error {
 		format := os.Getenv("JX_LOG_FORMAT")
 		if format == "json" {
 			setFormatter(FormatLayoutJSON)
+		} else if format == "stackdriver" {
+			setFormatter(FormatLayoutStackdriver)
 		} else {
 			setFormatter(FormatLayoutText)
 		}
@@ -106,6 +108,11 @@ func SetLevel(s string) error {
 	return nil
 }
 
+// GetLevel gets the current log level
+func GetLevel() string {
+	return logrus.GetLevel().String()
+}
+
 // GetLevels returns the list of valid log levels
 func GetLevels() []string {
 	var levels []string
@@ -120,6 +127,8 @@ func setFormatter(layout FormatLayoutType) {
 	switch layout {
 	case FormatLayoutJSON:
 		logrus.SetFormatter(&logrus.JSONFormatter{})
+	case FormatLayoutStackdriver:
+		logrus.SetFormatter(stackdriver.NewFormatter())
 	default:
 		logrus.SetFormatter(NewJenkinsXTextFormat())
 	}

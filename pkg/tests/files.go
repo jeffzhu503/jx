@@ -2,11 +2,16 @@ package tests
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/require"
 	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/pkg/errors"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/jenkins-x/jx/pkg/util"
 	"github.com/stretchr/testify/assert"
@@ -80,6 +85,33 @@ func AssertFilesExist(t *testing.T, expected bool, paths ...string) {
 	}
 }
 
+// AssertDirsExist asserts that the list of directory paths either exist or don't exist
+func AssertDirsExist(t *testing.T, expected bool, paths ...string) {
+	for _, path := range paths {
+		if expected {
+			AssertDirExists(t, path)
+		} else {
+			AssertDirDoesNotExist(t, path)
+		}
+	}
+}
+
+// AssertDirExists asserts that the given directory exists
+func AssertDirExists(t *testing.T, dir string) bool {
+	exists, err := util.DirExists(dir)
+	assert.NoError(t, err, "Failed checking if directory exists %s", dir)
+	assert.True(t, exists, "directory %s should exist", dir)
+	return exists
+}
+
+// AssertDirDoesNotExist asserts that the given directory does not exist
+func AssertDirDoesNotExist(t *testing.T, dir string) bool {
+	exists, err := util.DirExists(dir)
+	assert.NoError(t, err, "failed checking if directory exists %s", dir)
+	assert.False(t, exists, "directory %s should not exist", dir)
+	return exists
+}
+
 func AssertEqualFileText(t *testing.T, expectedFile string, actualFile string) error {
 	expectedText, err := AssertLoadFileText(t, expectedFile)
 	if err != nil {
@@ -117,6 +149,37 @@ func AssertTextFileContentsEqual(t *testing.T, expectedFile string, actualFile s
 	require.NoError(t, err)
 
 	assert.Equal(t, expected, actual, "contents of expected file %s and actual file %s", expectedFile, actualFile)
+}
 
-	t.Logf("compared %s and %s and they have equal content\n", expectedFile, actualFile)
+// AssertDirContentsEqual walks two directory structures and validates that the same files exist (by name) and that they have the same content
+func AssertDirContentsEqual(t *testing.T, expectedDir string, actualDir string) {
+	actualFiles := make(map[string]string, 0)
+	expectedFiles := make(map[string]string, 0)
+	err := filepath.Walk(actualDir, func(path string, info os.FileInfo, err error) error {
+		relativePath, err := filepath.Rel(actualDir, path)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		actualFiles[relativePath] = path
+		return nil
+	})
+	assert.NoError(t, err)
+	err = filepath.Walk(expectedDir, func(path string, info os.FileInfo, err error) error {
+		relativePath, err := filepath.Rel(expectedDir, path)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+		expectedFiles[relativePath] = path
+		return nil
+	})
+	assert.Len(t, actualFiles, len(expectedFiles))
+	for relativePath, path := range expectedFiles {
+		actualFile, ok := actualFiles[relativePath]
+		assert.True(t, ok, "%s not present", relativePath)
+		info, err := os.Stat(actualFile)
+		assert.NoError(t, err)
+		if !info.IsDir() {
+			AssertTextFileContentsEqual(t, path, actualFile)
+		}
+	}
 }

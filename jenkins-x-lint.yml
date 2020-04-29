@@ -4,33 +4,55 @@ pipelineConfig:
     pullRequest:
       pipeline:
         agent:
-          image: rawlingsj/executor:dev31
+          image: gcr.io/kaniko-project/executor:9912ccbf8d22bbafbf971124600fbb0b13b9cbd6
         stages:
           - name: ci
             environment:
+              - name: BASE_WORKSPACE
+                value: /workspace/source
               - name: GOPATH
                 value: /workspace/go
               - name: GOPROXY
                 value: http://jenkins-x-athens-proxy
               - name: PATH
-                value: "/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/workspace/go/bin"
+                value: "/usr/local/git/bin:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/workspace/go/bin"
+            options:
+              containerOptions:
+                resources:
+                  limits:
+                    cpu: 3
+                    memory: 6Gi
+                  requests:
+                    cpu: 2
+                    memory: 2Gi
             steps:
-              - name: mkdir
-                image: busybox
-                command: mkdir
-                args:
-                  - -p
-                  - /workspace/go/src/github.com/jenkins-x/jx
-
-              - name: copy
-                image: busybox
-                command: cp
-                args:
-                  - -R
-                  - "./"
-                  - /workspace/go/src/github.com/jenkins-x/jx
-
+              - name: fmt
+                image: golang:1.12.10
+                command: ./hack/gofmt.sh
+                dir: /workspace/source
               - name: lint
-                image: golang:1.12.5
-                command: ./hack/run-all-checks.sh
+                image: golang:1.12.10
+                command: ./hack/linter.sh
+                dir: /workspace/source
+              - name: ensure-test-classification
+                image: bash
+                command: ./hack/ensure-test-classification.sh
+                dir: /workspace/source
+              - name: mk-jx-project-dir	
+                image: bash
+                command: mkdir	
+                args:	
+                  - -p	
+                  - /workspace/go/src/github.com/jenkins-x/jx
+              - name: copy-jx-project-to-gopath
+                image: bash
+                command: cp	
+                args:	
+                  - -Rv	
+                  - "./"
+                  - "/workspace/go/src/github.com/jenkins-x/jx"
+                dir: /workspace/source
+              - name: generate
+                image: golang:1.12.10
+                command: ./hack/generate.sh
                 dir: /workspace/go/src/github.com/jenkins-x/jx

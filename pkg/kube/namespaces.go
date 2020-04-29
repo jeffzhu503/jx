@@ -5,6 +5,7 @@ import (
 
 	v1 "github.com/jenkins-x/jx/pkg/apis/jenkins.io/v1"
 	"github.com/jenkins-x/jx/pkg/client/clientset/versioned"
+	"github.com/jenkins-x/jx/pkg/kube/naming"
 	"github.com/jenkins-x/jx/pkg/log"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -110,7 +111,7 @@ func GetEnrichedDevEnvironment(kubeClient kubernetes.Interface, jxClient version
 // IsProwEnabled returns true if Prow is enabled in the given development namespace
 func IsProwEnabled(kubeClient kubernetes.Interface, ns string) (bool, error) {
 	// lets try determine if its Jenkins or not via the deployments
-	_, err := kubeClient.AppsV1beta1().Deployments(ns).Get(DeploymentProwBuild, metav1.GetOptions{})
+	_, err := kubeClient.AppsV1().Deployments(ns).Get(DeploymentProwBuild, metav1.GetOptions{})
 	if err != nil {
 		if isProwBuildNotFoundError(err) {
 			return false, nil
@@ -127,7 +128,7 @@ func isProwBuildNotFoundError(err error) bool {
 // IsTektonEnabled returns true if Build Pipeline is enabled in the given development namespace
 func IsTektonEnabled(kubeClient kubernetes.Interface, ns string) (bool, error) {
 	// lets try determine if its Jenkins or not via the deployments
-	_, err := kubeClient.AppsV1beta1().Deployments(ns).Get(DeploymentTektonController, metav1.GetOptions{})
+	_, err := kubeClient.AppsV1().Deployments(ns).Get(DeploymentTektonController, metav1.GetOptions{})
 	if err != nil {
 		if isTektonNotFoundError(err) {
 			return false, nil
@@ -156,7 +157,7 @@ func EnsureEditEnvironmentSetup(kubeClient kubernetes.Interface, jxClient versio
 		}
 	}
 
-	editNS := ToValidName(ns + "-edit-" + username)
+	editNS := naming.ToValidName(ns + "-edit-" + username)
 	labels := map[string]string{
 		LabelTeam:        ns,
 		LabelEnvironment: username,

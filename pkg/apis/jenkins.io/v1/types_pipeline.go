@@ -7,13 +7,13 @@ import (
 )
 
 const (
-	LabelSourceRepository = "sourcerepository"
-	LabelProvider         = "provider"
-	LabelOwner            = "owner"
-	LabelRepository       = "repository"
-	LabelBranch           = "branch"
-	LabelBuild            = "build"
-	LabelLastCommitSha    = "lastCommitSha"
+	LabelProvider      = "provider"
+	LabelOwner         = "owner"
+	LabelRepository    = "repository"
+	LabelBranch        = "branch"
+	LabelBuild         = "build"
+	LabelLastCommitSha = "lastCommitSha"
+	LabelContext       = "context"
 )
 
 // +genclient
@@ -35,31 +35,38 @@ type PipelineActivity struct {
 
 // PipelineActivitySpec is the specification of the pipeline activity
 type PipelineActivitySpec struct {
-	Pipeline              string                 `json:"pipeline,omitempty" protobuf:"bytes,1,opt,name=pipeline"`
-	Build                 string                 `json:"build,omitempty" protobuf:"bytes,2,opt,name=build"`
-	Version               string                 `json:"version,omitempty" protobuf:"bytes,3,opt,name=version"`
-	Status                ActivityStatusType     `json:"status,omitempty" protobuf:"bytes,4,opt,name=status"`
-	StartedTimestamp      *metav1.Time           `json:"startedTimestamp,omitempty" protobuf:"bytes,5,opt,name=startedTimestamp"`
-	CompletedTimestamp    *metav1.Time           `json:"completedTimestamp,omitempty" protobuf:"bytes,6,opt,name=completedTimestamp"`
-	Steps                 []PipelineActivityStep `json:"steps,omitempty" protobuf:"bytes,7,opt,name=steps"`
-	BuildURL              string                 `json:"buildUrl,omitempty" protobuf:"bytes,8,opt,name=buildUrl"`
-	BuildLogsURL          string                 `json:"buildLogsUrl,omitempty" protobuf:"bytes,9,opt,name=buildLogsUrl"`
-	GitURL                string                 `json:"gitUrl,omitempty" protobuf:"bytes,10,opt,name=gitUrl"`
-	GitRepository         string                 `json:"gitRepository,omitempty" protobuf:"bytes,11,opt,name=gitRepository"`
-	GitOwner              string                 `json:"gitOwner,omitempty" protobuf:"bytes,12,opt,name=gitOwner"`
-	GitBranch             string                 `json:"gitBranch,omitempty" protobuf:"bytes,13,opt,name=gitBranch"`
-	Author                string                 `json:"author,omitempty" protobuf:"bytes,14,opt,name=author"`
-	PullTitle             string                 `json:"pullTitle,omitempty" protobuf:"bytes,15,opt,name=pullTitle"`
-	ReleaseNotesURL       string                 `json:"releaseNotesURL,omitempty" protobuf:"bytes,16,opt,name=releaseNotesURL"`
-	LastCommitSHA         string                 `json:"lastCommitSHA,omitempty" protobuf:"bytes,17,opt,name=lastCommitSHA"`
-	LastCommitMessage     string                 `json:"lastCommitMessage,omitempty" protobuf:"bytes,18,opt,name=lastCommitMessage"`
-	LastCommitURL         string                 `json:"lastCommitURL,omitempty" protobuf:"bytes,19,opt,name=lastCommitURL"`
-	Workflow              string                 `json:"workflow,omitempty" protobuf:"bytes,20,opt,name=workflow"`
-	WorkflowStatus        ActivityStatusType     `json:"workflowStatus,omitempty" protobuf:"bytes,21,opt,name=workflowStatus"`
-	WorkflowMessage       string                 `json:"workflowMessage,omitempty" protobuf:"bytes,22,opt,name=workflowMessage"`
-	PostExtensions        []ExtensionExecution   `json:"postExtensions,omitempty" protobuf:"bytes,23,opt,name=postExtensions"`
-	Attachments           []Attachment           `json:"attachments,omitempty" protobuf:"bytes,24,opt,name=attachments"`
-	BatchPipelineActivity BatchPipelineActivity  `json:"batchPipelineActivity,omitempty" protobuf:"bytes,25,opt,name=batchPipelineActivity"`
+	Pipeline           string                 `json:"pipeline,omitempty" protobuf:"bytes,1,opt,name=pipeline"`
+	Build              string                 `json:"build,omitempty" protobuf:"bytes,2,opt,name=build"`
+	Version            string                 `json:"version,omitempty" protobuf:"bytes,3,opt,name=version"`
+	Status             ActivityStatusType     `json:"status,omitempty" protobuf:"bytes,4,opt,name=status"`
+	StartedTimestamp   *metav1.Time           `json:"startedTimestamp,omitempty" protobuf:"bytes,5,opt,name=startedTimestamp"`
+	CompletedTimestamp *metav1.Time           `json:"completedTimestamp,omitempty" protobuf:"bytes,6,opt,name=completedTimestamp"`
+	Steps              []PipelineActivityStep `json:"steps,omitempty" protobuf:"bytes,7,opt,name=steps"`
+	BuildURL           string                 `json:"buildUrl,omitempty" protobuf:"bytes,8,opt,name=buildUrl"`
+	BuildLogsURL       string                 `json:"buildLogsUrl,omitempty" protobuf:"bytes,9,opt,name=buildLogsUrl"`
+	GitURL             string                 `json:"gitUrl,omitempty" protobuf:"bytes,10,opt,name=gitUrl"`
+	GitRepository      string                 `json:"gitRepository,omitempty" protobuf:"bytes,11,opt,name=gitRepository"`
+	GitOwner           string                 `json:"gitOwner,omitempty" protobuf:"bytes,12,opt,name=gitOwner"`
+	GitBranch          string                 `json:"gitBranch,omitempty" protobuf:"bytes,13,opt,name=gitBranch"`
+	Author             string                 `json:"author,omitempty" protobuf:"bytes,14,opt,name=author"`
+	AuthorAvatarURL    string                 `json:"authorAvatarURL,omitempty" protobuf:"bytes,14,opt,name=authorAvatarURL"`
+	AuthorURL          string                 `json:"authorURL,omitempty" protobuf:"bytes,14,opt,name=authorURL"`
+	PullTitle          string                 `json:"pullTitle,omitempty" protobuf:"bytes,15,opt,name=pullTitle"`
+	ReleaseNotesURL    string                 `json:"releaseNotesURL,omitempty" protobuf:"bytes,16,opt,name=releaseNotesURL"`
+	LastCommitSHA      string                 `json:"lastCommitSHA,omitempty" protobuf:"bytes,17,opt,name=lastCommitSHA"`
+	LastCommitMessage  string                 `json:"lastCommitMessage,omitempty" protobuf:"bytes,18,opt,name=lastCommitMessage"`
+	LastCommitURL      string                 `json:"lastCommitURL,omitempty" protobuf:"bytes,19,opt,name=lastCommitURL"`
+	// Deprecated - Workflow functionality was removed and is obsolete
+	// Keeping these fields to ensure backwards compatibility
+	// Should be removed when we increment spec version
+	Workflow              string                `json:"workflow,omitempty" protobuf:"bytes,20,opt,name=workflow"`
+	WorkflowStatus        ActivityStatusType    `json:"workflowStatus,omitempty" protobuf:"bytes,21,opt,name=workflowStatus"`
+	WorkflowMessage       string                `json:"workflowMessage,omitempty" protobuf:"bytes,22,opt,name=workflowMessage"`
+	PostExtensions        []ExtensionExecution  `json:"postExtensions,omitempty" protobuf:"bytes,23,opt,name=postExtensions"`
+	Attachments           []Attachment          `json:"attachments,omitempty" protobuf:"bytes,24,opt,name=attachments"`
+	BatchPipelineActivity BatchPipelineActivity `json:"batchPipelineActivity,omitempty" protobuf:"bytes,25,opt,name=batchPipelineActivity"`
+	Context               string                `json:"context,omitempty" protobuf:"bytes,26,opt,name=context"`
+	BaseSHA               string                `json:"baseSHA,omitempty" protobuf:"bytes,27,opt,name=baseSHA"`
 }
 
 // BatchPipelineActivity contains information about a batch build, used by both the batch build and its comprising PRs for linking them together
@@ -69,10 +76,13 @@ type BatchPipelineActivity struct {
 	ComprisingPulLRequests []PullRequestInfo `json:"pullRequestInfo,omitempty" protobuf:"bytes,3,opt,name=pullRequestInfo"`
 }
 
-// PullRequestInfo contains information about a PR, like its PR and Build numbers
+// PullRequestInfo contains information about a PR included in a batch, like its PR number, the last build number, and SHA
 type PullRequestInfo struct {
-	PullRequestNumber        string `json:"pullRequestNumber,omitempty" protobuf:"bytes,1,opt,name=pullRequestNumber"`
+	PullRequestNumber string `json:"pullRequestNumber,omitempty" protobuf:"bytes,1,opt,name=pullRequestNumber"`
+	// LastBuildNumberForCommit is the number of the last successful build of this PR outside of a batch
 	LastBuildNumberForCommit string `json:"lastBuildNumberForCommit,omitempty" protobuf:"bytes,2,opt,name=lastBuildNumberForCommit"`
+	// LastBuildSHA is the commit SHA in the last successful build of this PR outside of a batch.
+	LastBuildSHA string `json:"lastBuildSHA,omitempty" protobuf:"bytes,3,opt,name=lastBuildSHA"`
 }
 
 // PipelineActivityStep represents a step in a pipeline activity
@@ -243,4 +253,20 @@ func (p *PipelineActivity) BranchName() string {
 	branch := paths[len(paths)-1]
 	p.Spec.GitBranch = branch
 	return branch
+}
+
+// StagesByStatus returns a map with statuses as keys and lists of stage names with that status as the values.
+func (p *PipelineActivity) StagesByStatus() map[ActivityStatusType][]string {
+	statusMap := make(map[ActivityStatusType][]string)
+
+	for _, stage := range p.Spec.Steps {
+		if stage.Kind == ActivityStepKindTypeStage && stage.Stage != nil {
+			if _, exists := statusMap[stage.Stage.Status]; !exists {
+				statusMap[stage.Stage.Status] = []string{}
+			}
+			statusMap[stage.Stage.Status] = append(statusMap[stage.Stage.Status], stage.Stage.Name)
+		}
+	}
+
+	return statusMap
 }

@@ -53,6 +53,8 @@ definitions:
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.AppSpec:
     description: AppSpec provides details of the metadata for an App
     properties:
+      pipelineExtension:
+        $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.PipelineExtension'
       schemaPreprocessor:
         $ref: '#/definitions/io.k8s.api.core.v1.Container'
       schemaPreprocessorRole:
@@ -387,6 +389,99 @@ definitions:
         $ref: '#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time'
       status:
         type: string
+    type: object
+  com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.DependencyUpdate:
+    description: DependencyUpdate describes an dependency update message from the
+      commit log
+    properties:
+      component:
+        type: string
+      fromReleaseHTMLURL:
+        type: string
+      fromReleaseName:
+        type: string
+      fromVersion:
+        type: string
+      host:
+        type: string
+      owner:
+        type: string
+      paths:
+        items:
+          items:
+            $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.DependencyUpdateDetails'
+          type: array
+        type: array
+      repo:
+        type: string
+      toReleaseHTMLURL:
+        type: string
+      toReleaseName:
+        type: string
+      toVersion:
+        type: string
+      url:
+        type: string
+    required:
+    - host
+    - owner
+    - repo
+    - url
+    - fromVersion
+    - fromReleaseHTMLURL
+    - fromReleaseName
+    - toVersion
+    - toReleaseHTMLURL
+    - toReleaseName
+    type: object
+  com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.DependencyUpdateDetails:
+    description: DependencyUpdateDetails are the details of a dependency update
+    properties:
+      component:
+        type: string
+      fromReleaseHTMLURL:
+        type: string
+      fromReleaseName:
+        type: string
+      fromVersion:
+        type: string
+      host:
+        type: string
+      owner:
+        type: string
+      repo:
+        type: string
+      toReleaseHTMLURL:
+        type: string
+      toReleaseName:
+        type: string
+      toVersion:
+        type: string
+      url:
+        type: string
+    required:
+    - host
+    - owner
+    - repo
+    - url
+    - fromVersion
+    - fromReleaseHTMLURL
+    - fromReleaseName
+    - toVersion
+    - toReleaseHTMLURL
+    - toReleaseName
+    type: object
+  com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.DeployOptions:
+    description: DeployOptions configures options for how to deploy applications by
+      default such as using progressive delivery or using horizontal pod autoscaler
+    properties:
+      canary:
+        description: Canary should we enable canary rollouts (progressive delivery)
+          for apps by default
+        type: boolean
+      hpa:
+        description: should we use the horizontal pod autoscaler on new apps by default?
+        type: boolean
     type: object
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Environment:
     description: Environment represents an environment like Dev, Test, Staging, Production
@@ -1062,6 +1157,9 @@ definitions:
           Namespace is the namespace in which pods schedule.
             empty: results in scheduler.DefaultNamespace
         type: string
+      spec:
+        $ref: '#/definitions/io.k8s.api.core.v1.PodSpec'
+        description: Spec is the Kubernetes pod spec used if Agent is kubernetes.
     required:
     - name
     - agent
@@ -1154,6 +1252,36 @@ definitions:
       url:
         type: string
     type: object
+  com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Periodic:
+    description: Periodic defines a job to be run periodically
+    properties:
+      JobBase:
+        $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.JobBase'
+      cron:
+        description: Cron representation of job trigger time
+        type: string
+      interval:
+        description: Interval to wait between two runs of the job.
+        type: string
+      tags:
+        $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.ReplaceableSliceOfStrings'
+        description: Tags for config entries
+    required:
+    - interval
+    - cron
+    type: object
+  com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Periodics:
+    description: Periodics is a list of jobs to be run periodically
+    properties:
+      entries:
+        description: Items are the post submit configurations
+        items:
+          $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Periodic'
+        type: array
+      replace:
+        description: Replace the existing entries
+        type: boolean
+    type: object
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.PipelineActivity:
     description: PipelineActivity represents pipeline activity for a particular run
       of a pipeline
@@ -1208,6 +1336,12 @@ definitions:
         type: array
       author:
         type: string
+      authorAvatarURL:
+        type: string
+      authorURL:
+        type: string
+      baseSHA:
+        type: string
       batchPipelineActivity:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.BatchPipelineActivity'
       build:
@@ -1218,6 +1352,8 @@ definitions:
         type: string
       completedTimestamp:
         $ref: '#/definitions/io.k8s.apimachinery.pkg.apis.meta.v1.Time'
+      context:
+        type: string
       gitBranch:
         type: string
       gitOwner:
@@ -1253,6 +1389,9 @@ definitions:
       version:
         type: string
       workflow:
+        description: Deprecated - Workflow functionality was removed and is obsolete
+          Keeping these fields to ensure backwards compatibility Should be removed
+          when we increment spec version
         type: string
       workflowMessage:
         type: string
@@ -1276,6 +1415,27 @@ definitions:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.PromoteActivityStep'
       stage:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.StageActivityStep'
+    type: object
+  com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.PipelineExtension:
+    description: PipelineExtension defines the image and command of an app which wants
+      to modify/extend the pipeline
+    properties:
+      args:
+        description: Arguments to the entrypoint.
+        items:
+          type: string
+        type: array
+      command:
+        description: Entrypoint array. Not executed within a shell.
+        type: string
+      image:
+        description: Docker image name.
+        type: string
+      name:
+        description: Name of the container specified as a DNS_LABEL.
+        type: string
+    required:
+    - name
     type: object
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.PipelineStructure:
     description: PipelineStructure contains references to the Pipeline and PipelineRun,
@@ -1496,8 +1656,10 @@ definitions:
         type: boolean
       policy:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.ProtectionPolicies'
-      query:
-        $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Query'
+      queries:
+        items:
+          $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Query'
+        type: array
       report:
         description: Report enables reporting the job status on the git provider
         type: boolean
@@ -1673,10 +1835,16 @@ definitions:
         description: Restrictions limits who can merge
     type: object
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.PullRequestInfo:
-    description: PullRequestInfo contains information about a PR, like its PR and
-      Build numbers
+    description: PullRequestInfo contains information about a PR included in a batch,
+      like its PR number, the last build number, and SHA
     properties:
       lastBuildNumberForCommit:
+        description: LastBuildNumberForCommit is the number of the last successful
+          build of this PR outside of a batch
+        type: string
+      lastBuildSHA:
+        description: LastBuildSHA is the commit SHA in the last successful build of
+          this PR outside of a batch.
         type: string
       pullRequestNumber:
         type: string
@@ -1776,6 +1944,10 @@ definitions:
       commits:
         items:
           $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.CommitSummary'
+        type: array
+      dependencyUpdates:
+        items:
+          $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.DependencyUpdate'
         type: array
       gitCloneUrl:
         type: string
@@ -1976,6 +2148,10 @@ definitions:
     properties:
       approve:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Approve'
+      attachments:
+        items:
+          $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Attachment'
+        type: array
       configUpdater:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.ConfigUpdater'
       externalPlugins:
@@ -1984,6 +2160,8 @@ definitions:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Lgtm'
       merger:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Merger'
+      periodics:
+        $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Periodics'
       plugins:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.ReplaceableSliceOfStrings'
         description: Plugins is a list of plugin names enabled for a repo
@@ -1997,6 +2175,10 @@ definitions:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.SchedulerAgent'
       trigger:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Trigger'
+      welcome:
+        items:
+          $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Welcome'
+        type: array
     type: object
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.SourceRepository:
     description: SourceRepository is the metadata for an Application/Project/SourceRepository
@@ -2113,10 +2295,17 @@ definitions:
     properties:
       description:
         type: string
+      httpCloneURL:
+        description: HTTPCloneURL is the git URL to clone this repository using HTTP/HTTPS
+        type: string
       org:
         type: string
       provider:
         description: Provider stores the URL of the git provider such as https://github.com
+        type: string
+      providerKind:
+        description: ProviderKind is the kind of provider (github / bitbucketcloud
+          / bitbucketserver etc)
         type: string
       providerName:
         description: ProviderName is a logical name for the provider without any URL
@@ -2126,6 +2315,14 @@ definitions:
         type: string
       scheduler:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.ResourceReference'
+        description: Scheduler a reference to a custom scheduler otherwise we default
+          to the Team's Scededuler
+      sshCloneURL:
+        description: SSHCloneURL is the git URL to clone this repository using SSH
+        type: string
+      url:
+        description: URL is the web URL of the project page
+        type: string
     type: object
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.StageActivityStep:
     description: StageActivityStep represents a stage of zero to more sub steps in
@@ -2234,6 +2431,10 @@ definitions:
         type: string
       askOnCreate:
         type: boolean
+      bootRequirements:
+        description: BootRequirements is a marshaled string of the jx-requirements.yml
+          used in the most recent run for this cluster
+        type: string
       branchPatterns:
         type: string
       buildPackName:
@@ -2245,14 +2446,21 @@ definitions:
       defaultScheduler:
         $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.ResourceReference'
       deployKind:
+        description: DeployKind what kind of deployment ("default" uses regular Kubernetes
+          Services and Deployments, "knative" uses the Knative Service resource instead)
         type: string
+      deployOptions:
+        $ref: '#/definitions/com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.DeployOptions'
+        description: DeployOptions configures options for how to deploy applications
+          by default such as using canary rollouts (progressive delivery) or using
+          horizontal pod autoscaler
       dockerRegistryOrg:
         type: string
       envOrganisation:
         type: string
       forkBranchPatterns:
         type: string
-      gitPrivate:
+      gitPublic:
         type: boolean
       gitServer:
         type: string
@@ -2269,13 +2477,21 @@ definitions:
         type: boolean
       organisation:
         type: string
+      pipelineUserEmail:
+        type: string
       pipelineUsername:
         type: string
       postPreviewJobs:
         items:
           $ref: '#/definitions/io.k8s.api.batch.v1.Job'
         type: array
+      profile:
+        description: Profile is the profile in use (see jx profile)
+        type: string
       promotionEngine:
+        type: string
+      prowConfig:
+        description: ProwConfig is the way we manage prow configurations
         type: string
       prowEngine:
         description: ProwEngine is the kind of prow engine used such as knative build
@@ -2423,6 +2639,12 @@ definitions:
       name:
         type: string
       username:
+        type: string
+    type: object
+  com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Welcome:
+    description: Welcome welcome plugin config
+    properties:
+      message_template:
         type: string
     type: object
   com.github.jenkins-x.jx.pkg.apis.jenkins_io.v1.Workflow:

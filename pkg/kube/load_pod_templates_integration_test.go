@@ -3,11 +3,12 @@
 package kube_test
 
 import (
-	"github.com/jenkins-x/jx/pkg/jx/cmd/cmd_test_helpers"
 	"io/ioutil"
 	"path"
 	"path/filepath"
 	"testing"
+
+	"github.com/jenkins-x/jx/pkg/cmd/testhelpers"
 
 	"github.com/ghodss/yaml"
 	"github.com/jenkins-x/jx/pkg/kube"
@@ -19,10 +20,10 @@ import (
 )
 
 func TestLoadPodTemplatest(t *testing.T) {
-	originalKubeCfg, tempKubeCfg, err := cmd_test_helpers.CreateTestKubeConfigDir()
+	originalKubeCfg, tempKubeCfg, err := testhelpers.CreateTestKubeConfigDir()
 	assert.NoError(t, err)
 	defer func() {
-		err := cmd_test_helpers.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
+		err := testhelpers.CleanupTestKubeConfigDir(originalKubeCfg, tempKubeCfg)
 		assert.NoError(t, err)
 	}()
 	testData := path.Join("test_data", "load_pod_templates")
